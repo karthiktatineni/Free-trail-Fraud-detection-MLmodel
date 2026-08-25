@@ -22,18 +22,22 @@ from typing import List, Dict, Optional, Any
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from predict import FraudRiskEngine, FEATURE_COLS
+from app import HTML_PAGE
 
 # Global Engine instance
 engine: Optional[FraudRiskEngine] = None
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VISUALS_DIR = os.path.join(BASE_DIR, "visuals")
 
 # Telemetry stats
 stats = {
     "total_requests": 0,
-    "verdicts": {"NEW / GENUINE": 0, "SUSPICIOUS": 0, "REPEAT / LIKELY ABUSE": 0},
+    "verdicts": {"NEW USER (GENUINE)": 0, "SUSPICIOUS (STEP-UP)": 0, "REPEATING USER (LIKELY ABUSE)": 0},
     "total_latency_ms": 0.0
 }
 
@@ -107,6 +111,46 @@ async def add_process_time_header(request: Request, call_next):
     process_time_ms = (time.perf_counter() - start_time) * 1000.0
     response.headers["X-Process-Time-Ms"] = f"{process_time_ms:.2f}"
     return response
+
+# ----------------- WEB GUI & ROOT ROUTES -----------------
+@app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
+def get_dashboard():
+    """Interactive Real-Time Fraud Assessment Web Dashboard."""
+    return HTMLResponse(content=HTML_PAGE)
+
+@app.get("/visuals/{file_path:path}", tags=["Dashboard"])
+def get_visual_asset(file_path: str):
+    """Serves model evaluation and explainability PNG charts."""
+    full_path = os.path.join(VISUALS_DIR, file_path.replace("/", os.sep))
+    if os.path.exists(full_path) and os.path.isfile(full_path):
+        return FileResponse(full_path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Visual asset not found")
+
+@app.post("/api/score", tags=["Dashboard"])
+def web_score(event: Dict[str, Any]):
+    """Frontend endpoint for web dashboard."""
+    eng = get_engine()
+    return eng.score_event(event, update_state=True)
+
+@app.post("/api/score-batch", tags=["Dashboard"])
+def web_score_batch(rows: List[Dict[str, Any]]):
+    """Frontend batch endpoint for web dashboard."""
+    eng = get_engine()
+    results = []
+    for row in rows:
+        res = eng.score_event(row, update_state=True)
+        results.append({
+            "user_id": res["user_id"],
+            "name": row.get("name", res["user_id"]),
+            "email": row.get("email", ""),
+            "risk_score": res["risk_score"],
+            "verdict": res["verdict"],
+            "recommended_action": res["recommended_action"],
+            "severity": res["severity"],
+            "confidence": res["model_confidence_pct"],
+            "top_signal": list(res["signal_breakdown"].keys())[0] if res["signal_breakdown"] else "",
+        })
+    return results
 
 # ----------------- ENDPOINTS -----------------
 @app.get("/healthz", status_code=status.HTTP_200_OK, tags=["System"])
