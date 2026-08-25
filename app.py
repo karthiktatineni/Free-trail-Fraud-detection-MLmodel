@@ -365,48 +365,49 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
 
           <div class="presets-bar">
-            <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Presets:</span>
-            <button class="preset-btn" onclick="loadPreset('genuine')">Genuine User</button>
-            <button class="preset-btn" onclick="loadPreset('subnet_ring')">Subnet Ring</button>
-            <button class="preset-btn" onclick="loadPreset('disposable')">Disposable Email</button>
-            <button class="preset-btn" onclick="loadPreset('geo_mismatch')">BIN Mismatch</button>
+            <span style="font-size: 11px; color: var(--text-muted); align-self: center; font-weight: 600;">Attack Scenarios:</span>
+            <button class="preset-btn" style="border-color: #10b981; color: #6ee7b7;" onclick="loadPreset('first_time')">1. Clean First-Time Signup (Low Risk)</button>
+            <button class="preset-btn" style="border-color: #ef4444; color: #fca5a5;" onclick="loadPreset('repeat_attack')">2. Repeat Attack (Same Card/Device -> High Risk)</button>
+            <button class="preset-btn" onclick="loadPreset('zero_shot_burner')">3. Zero-Shot Burner Email</button>
+            <button class="preset-btn" onclick="loadPreset('geo_mismatch')">4. BIN Geo Mismatch</button>
+            <button class="preset-btn" style="background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); margin-left: auto;" onclick="clearHistory()">Reset Session</button>
           </div>
 
           <form id="score-form" onsubmit="handleScore(event)">
             <div class="form-row">
               <div class="form-group">
                 <label>User Full Name</label>
-                <input type="text" id="inp-name" value="Sanjay Nair" required>
+                <input type="text" id="inp-name" value="Karthik Tatineni" required>
               </div>
               <div class="form-group">
                 <label>Signup Email</label>
-                <input type="email" id="inp-email" value="sanjay.nair+trial1@mailinator.com" required>
+                <input type="email" id="inp-email" value="karthik@gmail.com" required>
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label>IP Address</label>
-                <input type="text" id="inp-ip" value="39.173.180.200" required>
+                <input type="text" id="inp-ip" value="103.20.10.5" required>
               </div>
               <div class="form-group">
                 <label>Device ID / Fingerprint</label>
-                <input type="text" id="inp-device" value="f21faa72fe17c06d" required>
+                <input type="text" id="inp-device" value="dev_phone_karthik_101" required>
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label>Payment Token</label>
-                <input type="text" id="inp-payment" value="pm_424776171fe7" required>
+                <input type="text" id="inp-payment" value="pm_visa_karthik_101" required>
               </div>
               <div class="form-group">
                 <label>Signup Area / City</label>
                 <select id="inp-area">
-                  <option value="mumbai">Mumbai (IN)</option>
+                  <option value="mumbai" selected>Mumbai (IN)</option>
                   <option value="delhi">Delhi (IN)</option>
                   <option value="bangalore">Bangalore (IN)</option>
-                  <option value="ahmedabad" selected>Ahmedabad (IN)</option>
+                  <option value="ahmedabad">Ahmedabad (IN)</option>
                   <option value="new_york">New York (US)</option>
                   <option value="london">London (GB)</option>
                   <option value="singapore">Singapore (SG)</option>
@@ -437,7 +438,7 @@ HTML_PAGE = """<!DOCTYPE html>
               </div>
             </div>
 
-            <button type="submit" class="btn-primary" id="btn-score">Score Signup Event</button>
+            <button type="submit" class="btn-primary" id="btn-score">Score Signup Event & Log to Memory</button>
           </form>
         </div>
 
@@ -449,8 +450,8 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
 
           <div class="gauge-box">
-            <div class="gauge-score" id="res-score" style="color: var(--risk-high);">--</div>
-            <div id="res-verdict" class="verdict-badge verdict-high">NO PREDICTION YET</div>
+            <div class="gauge-score" id="res-score" style="color: var(--risk-low);">--</div>
+            <div id="res-verdict" class="verdict-badge verdict-low">READY TO SCORE</div>
           </div>
 
           <div class="meta-grid">
@@ -469,14 +470,14 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
 
           <div class="card-title" style="margin-top: 16px; margin-bottom: 8px;">
-            <span style="font-size: 13px;">Top Contributing Risk Signals</span>
+            <span style="font-size: 13px;">Additive Signal Point Breakdown</span>
           </div>
           <table class="signals-table">
             <thead>
               <tr>
-                <th>Signal</th>
+                <th>Signal Name</th>
                 <th>Raw Value</th>
-                <th style="width: 45%;">Relative Weight</th>
+                <th style="width: 45%;">Points Added</th>
               </tr>
             </thead>
             <tbody id="res-signals">
@@ -484,6 +485,35 @@ HTML_PAGE = """<!DOCTYPE html>
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Live Session Activity History Table -->
+      <div class="card" style="margin-top: 24px;">
+        <div class="card-title">
+          <span>Live Session Activity & Entity Memory Log</span>
+          <span style="font-size: 11px; font-weight: 400; color: var(--text-muted);">Real-time Causal Audit Trail</span>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px;">
+          Every signup tested below is causally committed into the live feature store. Subsequent attempts reusing the same card or device will immediately be flagged with High Risk.
+        </p>
+        <table class="signals-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Time</th>
+              <th>User Name & Email</th>
+              <th>Payment Token</th>
+              <th>Device ID</th>
+              <th>IP Address</th>
+              <th>Risk Score</th>
+              <th>Verdict</th>
+              <th>Key Detection Signals</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No signups submitted yet in this session.</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -594,9 +624,9 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
    - Probability P(abuse) in [0, 1]
          |
   [3-BAND DECISION & EXPLAINABILITY LAYER]
-   - &lt; 0.55 * T    -&gt; ALLOW (Genuine User)
-   - 0.55*T to T   -&gt; STEP-UP / MANUAL REVIEW (Grey Zone)
-   - &gt;= T          -&gt; BLOCK TRIAL / DEMAND PAYMENT (Repeat Abuse)
+   - 0 - 25        -&gt; ALLOW (New / Genuine User)
+   - 25 - 50       -&gt; STEP-UP / MANUAL REVIEW (Suspicious Grey Zone)
+   - &gt;= 50         -&gt; BLOCK TRIAL / DEMAND PAYMENT (Repeat Abuse)
         </div>
       </div>
     </section>
@@ -610,46 +640,50 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
       event.target.classList.add('active');
     }
 
+    let sharedCard = "pm_karthik_card_" + Math.floor(1000 + Math.random() * 9000);
+    let sharedDevice = "dev_karthik_phone_" + Math.floor(1000 + Math.random() * 9000);
+    let sessionHistory = [];
+
     const PRESETS = {
-      genuine: {
-        name: "David Smith",
-        email: "david.smith@gmail.com",
-        ip: "203.0.113.45",
-        device: "dev_unique_mac_" + Math.random().toString(36).substring(7),
-        payment: "pm_unique_card_" + Math.random().toString(36).substring(7),
-        area: "london",
-        os: "macos",
-        country: "GB"
-      },
-      repeat_abuser: {
-        name: "Akash Verma",
-        email: "akash.verma404+trial3@guerrillamail.com",
-        ip: "88.189.145.12",
-        device: "460f1adf042934c1",
-        payment: "pm_9d3f935e045d",
-        area: "delhi",
+      first_time: {
+        name: "Karthik Tatineni",
+        email: "karthik@gmail.com",
+        ip: "103.20.10.5",
+        device: sharedDevice,
+        payment: sharedCard,
+        area: "mumbai",
         os: "android",
         country: "IN"
       },
-      subnet_hopping: {
-        name: "Akash Verma",
-        email: "akash.verma+trial9@guerrillamail.com",
-        ip: "192.168.10.99",
-        device: "460f1adf042934c1",
-        payment: "pm_9d3f935e045d",
-        area: "delhi",
+      repeat_attack: {
+        name: "Karthik T",
+        email: "karthik.alt+trial2@yahoo.com",
+        ip: "103.20.10.88",
+        device: sharedDevice,
+        payment: sharedCard,
+        area: "mumbai",
         os: "android",
         country: "IN"
       },
-      disposable: {
+      zero_shot_burner: {
         name: "Quick Farmer",
         email: "farmer99@mailinator.com",
         ip: "198.51.100.12",
-        device: "dev_" + Math.random().toString(36).substring(7),
-        payment: "pm_" + Math.random().toString(36).substring(7),
+        device: "dev_fresh_" + Math.random().toString(36).substring(7),
+        payment: "pm_fresh_" + Math.random().toString(36).substring(7),
         area: "dubai",
         os: "windows",
         country: "AE"
+      },
+      geo_mismatch: {
+        name: "Card Swapper",
+        email: "user456@gmail.com",
+        ip: "103.21.244.10",
+        device: "dev_fresh_" + Math.random().toString(36).substring(7),
+        payment: "pm_us_stolen_card",
+        area: "mumbai",
+        os: "ios",
+        country: "US"
       }
     };
 
@@ -665,6 +699,44 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
       document.getElementById('inp-os').value = p.os;
       document.getElementById('inp-payment-country').value = p.country;
       document.getElementById('score-form').dispatchEvent(new Event('submit'));
+    }
+
+    function clearHistory() {
+      sessionHistory = [];
+      sharedCard = "pm_karthik_card_" + Math.floor(1000 + Math.random() * 9000);
+      sharedDevice = "dev_karthik_phone_" + Math.floor(1000 + Math.random() * 9000);
+      PRESETS.first_time.payment = sharedCard;
+      PRESETS.first_time.device = sharedDevice;
+      PRESETS.repeat_attack.payment = sharedCard;
+      PRESETS.repeat_attack.device = sharedDevice;
+      renderHistoryTable();
+      alert("Session memory reset! You can now test a clean first-time signup.");
+    }
+
+    function renderHistoryTable() {
+      const tbody = document.getElementById('history-tbody');
+      if (sessionHistory.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No signups submitted yet in this session.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = '';
+      sessionHistory.forEach((item, idx) => {
+        const tr = document.createElement('tr');
+        const badgeClass = item.severity === 'low' ? 'verdict-low' : item.severity === 'medium' ? 'verdict-med' : 'verdict-high';
+        const topSignals = Object.entries(item.signals).filter(([k, v]) => v > 0).map(([k, v]) => `${k} (+${v.toFixed(0)}p)`).join(', ');
+        tr.innerHTML = `
+          <td style="font-weight: 700; font-family: monospace;">#${sessionHistory.length - idx}</td>
+          <td style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${item.time}</td>
+          <td><strong>${item.name}</strong><br><span style="font-size: 11px; color: var(--text-muted);">${item.email}</span></td>
+          <td style="font-family: monospace; font-size: 12px; color: #93c5fd;">${item.payment}</td>
+          <td style="font-family: monospace; font-size: 12px; color: #d8b4fe;">${item.device}</td>
+          <td style="font-family: monospace; font-size: 12px;">${item.ip}</td>
+          <td style="font-weight: 800; font-family: monospace; font-size: 13px; color: ${item.severity === 'low' ? '#6ee7b7' : item.severity === 'medium' ? '#fde68a' : '#fca5a5'};">${item.risk_score.toFixed(1)}</td>
+          <td><span class="verdict-badge ${badgeClass}" style="font-size: 10px; padding: 2px 7px;">${item.verdict}</span></td>
+          <td style="font-size: 11px; font-family: monospace; color: #cbd5e1;">${topSignals || 'None (Clean)'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
     }
 
     async function handleScore(e) {
@@ -728,6 +800,22 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
           tbody.appendChild(tr);
         });
 
+        // Add to Session History
+        const now = new Date();
+        sessionHistory.unshift({
+          time: now.toTimeString().split(' ')[0],
+          name: payload.name,
+          email: payload.email,
+          payment: payload.payment_token,
+          device: payload.device_id,
+          ip: payload.ip_address,
+          risk_score: data.risk_score,
+          verdict: data.verdict,
+          severity: data.severity,
+          signals: data.signal_breakdown
+        });
+        renderHistoryTable();
+
       } catch (err) {
         alert('Scoring error: ' + err);
       }
@@ -772,7 +860,7 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
       document.getElementById('batch-results-wrap').style.display = 'block';
     }
 
-    window.onload = () => { loadPreset('subnet_ring'); };
+    window.onload = () => { loadPreset('first_time'); };
   </script>
 </body>
 </html>
