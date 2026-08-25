@@ -1,0 +1,31 @@
+{
+  "model_name": "XGBoost",
+  "feature_columns": [
+    "payment_reuse_count",
+    "ip_reuse_count",
+    "ip_subnet_reuse_count",
+    "device_reuse_count",
+    "device_signups_last_hour",
+    "payment_signups_last_24h",
+    "device_signups_last_24h",
+    "subnet_signups_last_24h",
+    "name_similarity_score",
+    "is_disposable_email_domain",
+    "is_free_email_domain",
+    "email_local_has_digits",
+    "email_local_has_plus_tag",
+    "payment_ip_country_mismatch",
+    "graph_component_size",
+    "attrs_reused_count",
+    "signup_hour",
+    "is_odd_hour",
+    "area_freq",
+    "device_os_freq"
+  ],
+  "target_column": "is_repeat_user",
+  "train_size": 7415,
+  "test_size": 1854,
+  "cv_recall_mean": 0.9304777628307039,
+  "cv_f1_mean": 0.9621396219458191,
+  "cv_roc_auc_mean": 0.9725348420993217
+}
