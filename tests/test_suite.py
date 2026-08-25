@@ -161,25 +161,41 @@ class TestFastAPIEndpoints(unittest.TestCase):
         resp = self.client.post("/api/v1/score", json=payload)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["verdict"], "NEW / GENUINE")
+        self.assertEqual(data["verdict"], "NEW USER (GENUINE)")
         self.assertEqual(data["recommended_action"], "ALLOW")
-        self.assertLess(data["risk_score"], 3.3)
+        self.assertEqual(data["risk_score"], 0.0)
 
     def test_score_fraud_syndicate(self):
         payload = {
-            "name": "Sanjay Nair",
-            "email": "sanjay.nair+trial4@mailinator.com",
-            "ip_address": "39.173.180.190",
-            "device_id": "f21faa72fe17c06d",
-            "payment_token": "pm_424776171fe7",
-            "area": "ahmedabad"
+            "name": "Akash Verma",
+            "email": "akash.verma404+trial3@guerrillamail.com",
+            "ip_address": "88.189.145.12",
+            "device_id": "460f1adf042934c1",
+            "payment_token": "pm_9d3f935e045d",
+            "area": "delhi"
         }
         resp = self.client.post("/api/v1/score", json=payload)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["verdict"], "REPEAT / LIKELY ABUSE")
+        self.assertEqual(data["verdict"], "REPEATING USER (LIKELY ABUSE)")
         self.assertEqual(data["recommended_action"], "BLOCK / REQUIRE PAYMENT")
-        self.assertGreaterEqual(data["risk_score"], 6.0)
+        self.assertGreaterEqual(data["risk_score"], 50.0)
+
+    def test_zero_shot_unseen_attacker(self):
+        # Cold start with zero history
+        engine_cold = FraudRiskEngine(warm_start=False)
+        payload = {
+            "name": "New Attacker",
+            "email": "attacker+trial1@mailinator.com",
+            "ip_address": "198.51.100.99",
+            "device_id": "dev_fresh_attacker",
+            "payment_token": "pm_fresh_card",
+            "area": "mumbai",
+            "payment_country": "US"
+        }
+        res = engine_cold.score_event(payload, update_state=False)
+        self.assertGreaterEqual(res["risk_score"], 35.0)
+        self.assertEqual(res["verdict"], "SUSPICIOUS (STEP-UP)")
 
 
 if __name__ == "__main__":

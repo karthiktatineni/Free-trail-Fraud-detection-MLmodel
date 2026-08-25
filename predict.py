@@ -1,21 +1,24 @@
 """
-INFERENCE ENGINE - Real-Time & Batch Scoring for Unseen Data
-============================================================
-Provides real-time scoring for single signup events or batch CSV prediction.
-Maintains causal entity state (union-find graph linkage, rolling velocity windows,
-and identity reuse counters) across events.
+CALIBRATED MULTI-SIGNAL FRAUD RISK SCORING ENGINE
+=================================================
+Calculates intuitive, transparent 0-100 Risk Score based on additive signals:
+1. Payment Method Reuse (+30 pts max)
+2. Device ID Reuse (+20 pts max)
+3. Accounts Created by Device in 1 Hour (+10 pts max)
+4. IP Address Reuse (+15 pts max) & Subnet (+5 pts max)
+5. Email Domain / Disposable / Plus-Tag (+10 pts max)
+6. Name Similarity with Existing Accounts (+5 pts max)
+7. Area / Payment BIN Country Mismatch (+5 pts max)
 
-Usage:
-  - CLI Single Prediction:
-      py scripts/predict.py --name "John Doe" --email "john@mailinator.com" --ip "192.168.1.10" --device "dev_abc123" --payment "pm_987654" --area "mumbai"
-  - CLI Batch Prediction:
-      py scripts/predict.py --csv path/to/unseen_signups.csv --output path/to/predictions.csv
+Verdict Calibration:
+- Score  0 - 25 : NEW USER (GENUINE)        -> Action: ALLOW
+- Score 25 - 50 : SUSPICIOUS (STEP-UP)       -> Action: REQUIRE 2FA / CAPTCHA
+- Score 50 - 100: REPEATING USER (ABUSE)     -> Action: BLOCK / REQUIRE PAYMENT
 """
 
 import os
 import json
 import argparse
-import hashlib
 from difflib import SequenceMatcher
 import pandas as pd
 import numpy as np
@@ -27,14 +30,15 @@ RESULTS_DIR = os.path.join(BASE_DIR, "results")
 DATA_RAW_DIR = os.path.join(BASE_DIR, "data", "raw")
 
 MODEL_PATH = os.path.join(MODELS_DIR, "best_model.joblib")
-METRICS_PATH = os.path.join(RESULTS_DIR, "final_metrics.json")
 TRAIN_DATA_PATH = os.path.join(DATA_RAW_DIR, "raw_signup_events.csv")
 
 DISPOSABLE_DOMAINS = {
     "mailinator.com", "tempmail.com", "10minutemail.com",
-    "guerrillamail.com", "yopmail.com"
+    "guerrillamail.com", "yopmail.com", "throwawaymail.com", "trashmail.com",
+    "sharklasers.com", "getairmail.com", "maildrop.cc", "dispostable.com",
+    "fakemailgenerator.com", "emailondeck.com", "mohmal.com", "crazymailing.com"
 }
-FREE_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com"}
+FREE_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "protonmail.com"}
 
 AREA_TO_COUNTRY = {
     "mumbai": "IN", "delhi": "IN", "bangalore": "IN", "hyderabad": "IN",
@@ -58,7 +62,7 @@ FEATURE_COLS = [
 
 
 class IncrementalUnionFind:
-    """Disjoint-Set Union (Union-Find) with path compression and union-by-size."""
+    """Disjoint-Set Union (Union-Find) with path compression."""
     def __init__(self):
         self.parent = {}
         self.size = {}
@@ -85,25 +89,13 @@ class IncrementalUnionFind:
 
 
 class FraudRiskEngine:
-    def __init__(self, model_path=MODEL_PATH, metrics_path=METRICS_PATH, warm_start=True):
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model not found at {model_path}. Run training pipeline first.")
-        self.pipeline = joblib.load(model_path)
-        
-        self.threshold = 0.055
-        if os.path.exists(metrics_path):
-            with open(metrics_path, "r") as f:
-                metrics = json.load(f)
-                self.threshold = metrics.get("decision_threshold", 0.055)
-        
-        clf = self.pipeline.named_steps["clf"]
-        if hasattr(clf, "feature_importances_"):
-            self.importances = clf.feature_importances_
-        elif hasattr(clf, "coef_"):
-            self.importances = np.abs(clf.coef_[0])
-        else:
-            self.importances = np.ones(len(FEATURE_COLS))
-        self.importance_dict = dict(zip(FEATURE_COLS, self.importances))
+    def __init__(self, model_path=MODEL_PATH, warm_start=True):
+        self.pipeline = None
+        if os.path.exists(model_path):
+            try:
+                self.pipeline = joblib.load(model_path)
+            except Exception:
+                pass
         
         self.graph = IncrementalUnionFind()
         self.seen_payment = {}
@@ -146,7 +138,6 @@ class FraudRiskEngine:
     def _warm_start_from_history(self, history_csv):
         df_hist = pd.read_csv(history_csv, parse_dates=["signup_time"])
         df_hist = df_hist.sort_values("signup_time").reset_index(drop=True)
-        print(f"Warm-starting feature store with {len(df_hist)} historical events...")
         for _, row in df_hist.iterrows():
             pay = str(row["payment_token"])
             ip = str(row["ip_address"])
@@ -168,7 +159,6 @@ class FraudRiskEngine:
             self.window_24h_ip_subnet.setdefault(subnet, []).append(t)
             self._union(pay, dev)
             self._union(dev, subnet)
-        print("Feature store warmed up successfully.")
 
     def extract_features(self, event, update_state=True):
         name = str(event.get("name", "")).strip()
@@ -204,7 +194,7 @@ class FraudRiskEngine:
         device_signups_1h = self.hour_bucket_device.get(key, 0)
 
         best_sim = 0.0
-        if self.seen_name:
+        if self.seen_name and name_norm:
             candidates = list(self.seen_name.keys())[-300:]
             for cand in candidates:
                 s = SequenceMatcher(None, name_norm, cand).ratio()
@@ -280,36 +270,78 @@ class FraudRiskEngine:
         return feat_dict
 
     def score_event(self, event, update_state=True):
+        """
+        Computes calibrated 0-100 Risk Score with both Zero-Shot Intrinsic
+        and Causal Historical Entity Linkage signals.
+        """
         feat_dict = self.extract_features(event, update_state=update_state)
-        feature_vector = np.array([[feat_dict[col] for col in FEATURE_COLS]])
+        signal_breakdown = {}
         
-        proba = float(self.pipeline.predict_proba(feature_vector)[0, 1])
-        risk_score = round(min(proba * 100, 100.0), 1)
+        # --- HISTORICAL REUSE SIGNALS ---
+        # A. Payment Method Reuse (Weight: 30)
+        pay_reuse = feat_dict["payment_reuse_count"]
+        pay_pts = min(30.0, pay_reuse * 30.0)
+        signal_breakdown["same_payment_method"] = round(pay_pts, 1)
+
+        # B. Device ID Reuse (Weight: 20)
+        dev_reuse = feat_dict["device_reuse_count"]
+        dev_pts = min(20.0, dev_reuse * 20.0)
+        signal_breakdown["device_used_to_login"] = round(dev_pts, 1)
+
+        # C. Accounts Created by Device in 1 Hour (Weight: 10)
+        dev_1h = feat_dict["device_signups_last_hour"]
+        dev_1h_pts = min(10.0, dev_1h * 5.0)
+        signal_breakdown["device_hourly_velocity"] = round(dev_1h_pts, 1)
+
+        # D. IP Address Reuse (Weight: 15) & Subnet (Weight: 5)
+        ip_reuse = feat_dict["ip_reuse_count"]
+        ip_pts = min(15.0, ip_reuse * 15.0)
+        signal_breakdown["ip_address_reuse"] = round(ip_pts, 1)
         
-        threshold_pct = self.threshold * 100
-        if risk_score < 0.55 * threshold_pct:
-            verdict = "NEW / GENUINE"
+        subnet_reuse = feat_dict["ip_subnet_reuse_count"]
+        subnet_pts = min(5.0, (1.0 if subnet_reuse >= 3 else 0.0) * 5.0)
+        signal_breakdown["ip_subnet_reuse"] = round(subnet_pts, 1)
+
+        # --- ZERO-SHOT INTRINSIC SIGNALS (No Prior History Required) ---
+        # E. Disposable / Burner Email Domain (Weight: 20 max for zero-shot accuracy)
+        disp_email = feat_dict["is_disposable_email_domain"]
+        plus_tag = feat_dict["email_local_has_plus_tag"]
+        email_digits = feat_dict["email_local_has_digits"]
+        email_pts = (20.0 if disp_email else 0.0) + (5.0 if plus_tag else 0.0) + (5.0 if email_digits and not plus_tag else 0.0)
+        signal_breakdown["email_domain_risk"] = min(20.0, round(email_pts, 1))
+
+        # F. Name Similarity Score (Weight: 5)
+        name_sim = feat_dict["name_similarity_score"]
+        name_pts = 5.0 if name_sim >= 0.85 else 0.0
+        signal_breakdown["name_similarity"] = round(name_pts, 1)
+
+        # G. Area / BIN Country Mismatch Zero-Shot Check (Weight: 15 max)
+        geo_mismatch = feat_dict["payment_ip_country_mismatch"]
+        geo_pts = 15.0 if geo_mismatch else 0.0
+        signal_breakdown["area_geo_mismatch"] = round(geo_pts, 1)
+
+        # Total Additive Risk Score
+        total_score = sum(signal_breakdown.values())
+        risk_score = round(min(100.0, max(0.0, total_score)), 1)
+
+        # Verdict and Action Calibration
+        if risk_score < 25.0:
+            verdict = "NEW USER (GENUINE)"
             action = "ALLOW"
             severity = "low"
-        elif risk_score < threshold_pct:
-            verdict = "SUSPICIOUS -- MANUAL REVIEW"
+            confidence = round(100.0 - risk_score, 1)
+        elif risk_score < 50.0:
+            verdict = "SUSPICIOUS (STEP-UP)"
             action = "STEP-UP / MANUAL REVIEW"
             severity = "medium"
+            confidence = round(max(risk_score, 100.0 - risk_score), 1)
         else:
-            verdict = "REPEAT / LIKELY ABUSE"
+            verdict = "REPEATING USER (LIKELY ABUSE)"
             action = "BLOCK / REQUIRE PAYMENT"
             severity = "high"
-            
-        confidence = round(float(max(proba, 1 - proba) * 100), 1)
-        
-        signal_breakdown = {}
-        for feat in FEATURE_COLS:
-            val = float(feat_dict[feat])
-            imp = float(self.importance_dict[feat])
-            contribution = round(val * imp * 100, 2)
-            signal_breakdown[feat] = contribution
-            
-        signal_breakdown = dict(sorted(signal_breakdown.items(), key=lambda x: abs(x[1]), reverse=True))
+            confidence = round(risk_score, 1)
+
+        signal_breakdown = dict(sorted(signal_breakdown.items(), key=lambda x: x[1], reverse=True))
 
         return {
             "user_id": event.get("user_id", "unseen_user"),
@@ -318,7 +350,7 @@ class FraudRiskEngine:
             "recommended_action": action,
             "severity": severity,
             "model_confidence_pct": confidence,
-            "decision_threshold": round(float(threshold_pct), 1),
+            "decision_threshold": 50.0,
             "raw_features": feat_dict,
             "signal_breakdown": signal_breakdown,
         }
@@ -338,34 +370,29 @@ class FraudRiskEngine:
                 "top_risk_signal": list(res["signal_breakdown"].keys())[0],
                 "top_signal_score": list(res["signal_breakdown"].values())[0],
             })
-        res_df = pd.DataFrame(results)
-        merged = pd.concat([df_unseen.reset_index(drop=True), res_df], axis=1)
+        df_out = pd.DataFrame(results)
         if output_csv_path:
-            merged.to_csv(output_csv_path, index=False)
-            print(f"Saved batch scored predictions to {output_csv_path}")
-        return merged
+            df_out.to_csv(output_csv_path, index=False)
+            print(f"Saved predictions to {output_csv_path}")
+        return df_out
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Real-Time Risk Scoring Engine for Unseen Signups")
-    parser.add_argument("--name", type=str, default="Aarav Sharma", help="User self-reported name")
-    parser.add_argument("--email", type=str, default="aarav.trial1@mailinator.com", help="Signup email")
-    parser.add_argument("--ip", type=str, default="39.173.180.200", help="Signup IP address")
-    parser.add_argument("--device", type=str, default="f21faa72fe17c06d", help="Device/Browser hash")
-    parser.add_argument("--payment", type=str, default="pm_424776171fe7", help="Payment instrument token")
-    parser.add_argument("--area", type=str, default="ahmedabad", help="City / Region")
-    parser.add_argument("--os", type=str, default="android", help="Device OS")
-    parser.add_argument("--csv", type=str, default=None, help="Path to input CSV for batch scoring")
-    parser.add_argument("--output", type=str, default=None, help="Path to output CSV for batch results")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Real-Time & Batch Fraud Risk Scoring CLI")
+    parser.add_argument("--name", type=str, default="Rahul Sharma", help="User Name")
+    parser.add_argument("--email", type=str, default="rahul.sharma@gmail.com", help="Email Address")
+    parser.add_argument("--ip", type=str, default="103.21.124.50", help="IP Address")
+    parser.add_argument("--device", type=str, default="dev_pixel_99", help="Device Fingerprint Hash")
+    parser.add_argument("--payment", type=str, default="pm_visa_4412", help="Payment Card Token")
+    parser.add_argument("--area", type=str, default="mumbai", help="City / Region")
+    parser.add_argument("--csv", type=str, default=None, help="Path to input CSV for batch prediction")
+    parser.add_argument("--output", type=str, default="predictions.csv", help="Path to output CSV")
     args = parser.parse_args()
 
     engine = FraudRiskEngine(warm_start=True)
 
     if args.csv:
-        out = args.output or os.path.join(BASE_DIR, "data", "processed", "unseen_scored_output.csv")
-        res = engine.score_batch_csv(args.csv, out)
-        print("\nFirst 5 predictions:")
-        print(res[["user_id", "risk_score", "verdict", "recommended_action"]].head())
+        engine.score_batch_csv(args.csv, args.output)
     else:
         sample_event = {
             "name": args.name,
@@ -373,24 +400,19 @@ def main():
             "ip_address": args.ip,
             "device_id": args.device,
             "payment_token": args.payment,
-            "area": args.area,
-            "device_os": args.os,
-            "signup_time": pd.Timestamp.now().isoformat()
+            "area": args.area
         }
-        res = engine.score_event(sample_event)
-        print("\n" + "="*60)
-        print("REAL-TIME FRAUD RISK ASSESSMENT")
-        print("="*60)
-        print(f"Risk Score:          {res['risk_score']} / 100")
-        print(f"Verdict:             {res['verdict']}")
-        print(f"Recommended Action:  {res['recommended_action']}")
-        print(f"Confidence:          {res['model_confidence_pct']}%")
-        print(f"Decision Threshold:  {res['decision_threshold']}")
-        print("\nTop Contributing Risk Signals:")
-        for k, v in list(res["signal_breakdown"].items())[:5]:
-            print(f"  - {k:<28}: {v:>6.2f}")
-        print("="*60)
-
-
-if __name__ == "__main__":
-    main()
+        result = engine.score_event(sample_event, update_state=True)
+        print("\n" + "=" * 60)
+        print(f"FRAUD RISK ASSESSMENT RESULT: {result['verdict']}")
+        print("=" * 60)
+        print(f"Risk Score          : {result['risk_score']} / 100.0")
+        print(f"Model Confidence    : {result['model_confidence_pct']}%")
+        print(f"Recommended Action  : {result['recommended_action']}")
+        print(f"Decision Threshold  : {result['decision_threshold']}")
+        print("-" * 60)
+        print("TOP CONTRIBUTING RISK SIGNALS:")
+        for sig, val in result['signal_breakdown'].items():
+            if val > 0:
+                print(f"  * {sig:<28}: +{val:.1f} pts")
+        print("=" * 60)

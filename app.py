@@ -615,19 +615,29 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
         name: "David Smith",
         email: "david.smith@gmail.com",
         ip: "203.0.113.45",
-        device: "dev_" + Math.random().toString(36).substring(7),
-        payment: "pm_" + Math.random().toString(36).substring(7),
+        device: "dev_unique_mac_" + Math.random().toString(36).substring(7),
+        payment: "pm_unique_card_" + Math.random().toString(36).substring(7),
         area: "london",
         os: "macos",
         country: "GB"
       },
-      subnet_ring: {
-        name: "Sanjay Nair",
-        email: "sanjay.nair+trial3@outlook.com",
-        ip: "39.173.180.175",
-        device: "f21faa72fe17c06d",
-        payment: "pm_424776171fe7",
-        area: "ahmedabad",
+      repeat_abuser: {
+        name: "Akash Verma",
+        email: "akash.verma404+trial3@guerrillamail.com",
+        ip: "88.189.145.12",
+        device: "460f1adf042934c1",
+        payment: "pm_9d3f935e045d",
+        area: "delhi",
+        os: "android",
+        country: "IN"
+      },
+      subnet_hopping: {
+        name: "Akash Verma",
+        email: "akash.verma+trial9@guerrillamail.com",
+        ip: "192.168.10.99",
+        device: "460f1adf042934c1",
+        payment: "pm_9d3f935e045d",
+        area: "delhi",
         os: "android",
         country: "IN"
       },
@@ -640,16 +650,6 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
         area: "dubai",
         os: "windows",
         country: "AE"
-      },
-      geo_mismatch: {
-        name: "Card Swapper",
-        email: "user456@yahoo.com",
-        ip: "103.21.244.10",
-        device: "dev_" + Math.random().toString(36).substring(7),
-        payment: "pm_foreign_card",
-        area: "mumbai",
-        os: "ios",
-        country: "US"
       }
     };
 
@@ -692,7 +692,7 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
         const duration = (performance.now() - startT).toFixed(1);
 
         document.getElementById('res-time').innerText = duration + ' ms latency';
-        document.getElementById('res-score').innerText = data.risk_score.toFixed(1);
+        document.getElementById('res-score').innerText = data.risk_score.toFixed(1) + ' / 100';
         
         const badge = document.getElementById('res-verdict');
         badge.innerText = data.verdict;
@@ -703,27 +703,25 @@ Bob White,bob+trial@mailinator.com,39.173.180.50,dev_b1,pm_424776171fe7,ahmedaba
 
         document.getElementById('res-action').innerText = data.recommended_action;
         document.getElementById('res-conf').innerText = data.model_confidence_pct + '%';
-        document.getElementById('res-graph').innerText = (data.raw_features.graph_component_size || 1) + ' accounts';
+        document.getElementById('res-graph').innerText = (data.raw_features.graph_component_size || 1) + ' linked nodes';
 
         const tbody = document.getElementById('res-signals');
         tbody.innerHTML = '';
-        let maxWeight = 1;
         const signals = Object.entries(data.signal_breakdown);
-        if (signals.length > 0) maxWeight = Math.max(...signals.map(s => Math.abs(s[1])), 1);
 
-        signals.slice(0, 7).forEach(([sig, val]) => {
+        signals.forEach(([sig, val]) => {
           const raw = data.raw_features[sig];
-          const pct = Math.min((Math.abs(val) / maxWeight) * 100, 100);
+          const pct = Math.min((val / 30.0) * 100, 100);
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td style="font-weight: 500; font-family: monospace;">${sig}</td>
-            <td style="color: var(--text-muted);">${raw !== undefined ? raw : '--'}</td>
+            <td style="font-weight: 600; font-family: monospace; color: #e2e8f0;">${sig}</td>
+            <td style="color: var(--text-muted); font-family: monospace;">${raw !== undefined ? raw : '--'}</td>
             <td>
-              <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                <span>${val > 0 ? '+' : ''}${val.toFixed(2)}</span>
+              <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px;">
+                <span style="font-weight: bold; color: ${val > 0 ? '#fca5a5' : '#6ee7b7'};">${val > 0 ? '+' : ''}${val.toFixed(1)} pts</span>
               </div>
               <div class="signal-bar-wrap">
-                <div class="signal-bar" style="width: ${pct}%;"></div>
+                <div class="signal-bar" style="width: ${val > 0 ? pct : 0}%; background: ${val >= 15 ? 'linear-gradient(90deg, #f59e0b, #ef4444)' : '#3b82f6'};"></div>
               </div>
             </td>
           `;
