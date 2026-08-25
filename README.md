@@ -364,7 +364,37 @@ For regulatory compliance (GDPR Article 22), internal auditing, and user dispute
 
 ---
 
-## 9. Project Repository Layout
+## 9. Data & Concept Drift Monitoring (PSI Engine)
+
+To detect covariate shift and syndicate evasion shifts, the platform continuously tracks the **Population Stability Index (PSI)** and **Kolmogorov-Smirnov (KS) Statistics**:
+
+$$\text{PSI} = \sum_{i=1}^K \left( \text{Actual}_i - \text{Expected}_i \right) \times \ln\left( \frac{\text{Actual}_i}{\text{Expected}_i} \right)$$
+
+<p align="center">
+  <img src="visuals/monitoring/drift_dashboard.png" alt="Data & Concept Drift Monitoring Dashboard" width="90%">
+</p>
+
+- **$\text{PSI} < 0.10$**: `STABLE` (Normal organic traffic).
+- **$0.10 \le \text{PSI} < 0.25$**: `MODERATE DRIFT` (Increased monitoring).
+- **$\text{PSI} \ge 0.25$**: `CRITICAL RETRAIN ALERT` (Dispatches automated webhook to retrain pipeline).
+
+---
+
+## 10. Multi-Round Human-in-the-Loop Active Learning
+
+Uncertainty Sampling isolates **Band 2 (Grey Zone: 3.3 - 6.0)** accounts closest to the decision threshold. In a 5-round feedback loop, human review labels are incorporated incrementally:
+
+<p align="center">
+  <img src="visuals/monitoring/active_learning_feedback.png" alt="Multi-Round Active Learning Feedback Dashboard" width="90%">
+</p>
+
+- **Grey Zone Pool:** Depleted from 109 to 35 ambiguous edge cases.
+- **Abuse Precision Uplift:** Improved from **76.14% to 77.98%**.
+- **Abuse Recall Uplift:** Improved from **95.27% to 96.02%**.
+
+---
+
+## 11. Project Repository Layout
 
 ```
 Fraud_detection/
@@ -385,32 +415,16 @@ Fraud_detection/
 │   ├── cv_results.json                        # 10-Fold CV metrics across 7 models
 │   ├── feature_importance.csv                 # Gini importance scores for all 20 features
 │   ├── final_metrics.json                     # Final test set accuracy, recall, ROC-AUC
+│   ├── drift_analysis.json                    # Feature and score PSI drift audit
+│   ├── active_learning_results.json           # 5-round active learning progression
 │   └── risk_scoring_demo.json                 # Sample output format with signal breakdowns
 │
 ├── visuals/
-│   ├── eda/
-│   │   ├── target_distribution.png            # Class balance (70.1% genuine / 29.9% abuse)
-│   │   ├── missing_values.png                 # Missing value audit (100% clean)
-│   │   ├── feature_distributions.png          # Feature densities by class
-│   │   └── correlation_matrix.png             # Raw signal correlation matrix
-│   │
-│   ├── evaluation/
-│   │   ├── confusion_matrix.png               # Confusion matrix (527 of 554 caught)
-│   │   ├── roc_curve.png                      # ROC curve (AUC = 0.976)
-│   │   ├── precision_recall_curve.png         # Precision-Recall curve (AP = 0.974)
-│   │   ├── calibration_curve.png              # Reliability / probability calibration diagram
-│   │   ├── threshold_analysis.png             # Precision-Recall-F1 threshold scan
-│   │   └── model_comparison.png              # 10-Fold CV comparison across 7 algorithms
-│   │
-│   ├── explainability/
-│   │   ├── feature_importance.png             # Global feature importance bar chart
-│   │   └── shap_summary.png                   # SHAP summary attribution beeswarm plot
-│   │
-│   └── inference/
-│       ├── genuine_user_result.png            # Live scorecard for genuine user (0.5 / 100)
-│       ├── fraud_syndicate_result.png         # Live scorecard for fraud syndicate (99.9 / 100)
-│       ├── attack_evasion_graph_trace.png     # Evasion attack trace (Graph cluster growth)
-│       └── live_scoring_dashboard_summary.png # 3-Band Policy operational overview
+│   ├── eda/                                   # Target, missing value, feature densities, correlation
+│   ├── evaluation/                            # Confusion matrix, ROC, PR, calibration, threshold
+│   ├── explainability/                        # Global feature importance & SHAP summary plot
+│   ├── inference/                             # Genuine/Fraud scorecards, attack evasion trace, policy
+│   └── monitoring/                            # Drift dashboard & Active Learning learning curves
 │
 ├── scripts/
 │   ├── 01_generate_data.py                    # Synthetic dataset generator
@@ -419,15 +433,57 @@ Fraud_detection/
 │   ├── 04_model_training.py                   # 10-Fold Stratified CV & model selection
 │   ├── 05_model_evaluation.py                 # Test evaluation, threshold tuning & SHAP
 │   ├── 06_risk_scoring_engine.py              # Full batch scoring engine
+│   ├── 07_drift_monitor.py                    # Continuous PSI & KS drift monitoring engine
+│   ├── 08_active_learning_feedback.py         # Multi-round human-in-the-loop feedback loop
+│   ├── redis_feature_store.py                 # Low-latency Redis in-memory sorted set store
 │   ├── demo_comparison.py                     # Live terminal demonstration script
 │   └── generate_inference_visuals.py          # Script generating inference visual cards
 │
+├── tests/
+│   └── test_suite.py                          # Automated 12-test suite (Union-Find, Causality, API)
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml                             # GitHub Actions automated CI/CD pipeline
+│
+├── api.py                                     # Production FastAPI Async REST Microservice (<15ms)
 ├── app.py                                     # Interactive Web GUI dashboard (<200ms)
 ├── predict.py                                 # Real-time CLI & programmatic inference engine
+├── Dockerfile                                 # Multi-stage production container with health checks
+├── docker-compose.yml                         # FastAPI + Redis distributed deployment
 ├── Fraud_Detection_System_Report.pdf          # Full publication PDF report (Page 1 Quickstart)
-├── README.md                                  # Complete architecture & interview guide
+├── README.md                                  # Complete architecture & interview master guide
 ├── requirements.txt                           # Python package dependencies
 └── .gitignore                                 # Git ignore patterns
+```
+
+---
+
+## 12. Production Deployment & API Reference
+
+### A. Start the FastAPI Production Microservice
+```bash
+py api.py
+```
+*Interactive Swagger UI at **`http://localhost:8000/docs`** and ReDoc at **`http://localhost:8000/redoc`**.*
+
+### B. Run One-Command Docker Compose (FastAPI + Redis Cluster)
+```bash
+docker-compose up --build -d
+```
+
+### C. Run the Automated Production Test Suite
+```bash
+py tests/test_suite.py
+```
+
+### D. Run Continuous Drift Monitoring & Active Learning Loop
+```bash
+# Data & Concept Drift Audit (PSI):
+py scripts/07_drift_monitor.py
+
+# Multi-Round Human-in-the-Loop Active Learning:
+py scripts/08_active_learning_feedback.py
 ```
 
 ---

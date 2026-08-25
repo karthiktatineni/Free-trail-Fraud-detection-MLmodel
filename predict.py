@@ -57,6 +57,33 @@ FEATURE_COLS = [
 ]
 
 
+class IncrementalUnionFind:
+    """Disjoint-Set Union (Union-Find) with path compression and union-by-size."""
+    def __init__(self):
+        self.parent = {}
+        self.size = {}
+
+    def find(self, x: str) -> str:
+        self.parent.setdefault(x, x)
+        self.size.setdefault(x, 1)
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]
+            x = self.parent[x]
+        return x
+
+    def union(self, a: str, b: str):
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return
+        if self.size[ra] < self.size[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        self.size[ra] += self.size[rb]
+
+    def get_component_size(self, x: str) -> int:
+        return self.size[self.find(x)]
+
+
 class FraudRiskEngine:
     def __init__(self, model_path=MODEL_PATH, metrics_path=METRICS_PATH, warm_start=True):
         if not os.path.exists(model_path):
@@ -78,8 +105,7 @@ class FraudRiskEngine:
             self.importances = np.ones(len(FEATURE_COLS))
         self.importance_dict = dict(zip(FEATURE_COLS, self.importances))
         
-        self.parent = {}
-        self.size = {}
+        self.graph = IncrementalUnionFind()
         self.seen_payment = {}
         self.seen_ip = {}
         self.seen_subnet = {}
@@ -102,24 +128,13 @@ class FraudRiskEngine:
             self._warm_start_from_history(TRAIN_DATA_PATH)
 
     def _find(self, x):
-        self.parent.setdefault(x, x)
-        self.size.setdefault(x, 1)
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
+        return self.graph.find(x)
 
     def _union(self, a, b):
-        ra, rb = self._find(a), self._find(b)
-        if ra == rb:
-            return
-        if self.size[ra] < self.size[rb]:
-            ra, rb = rb, ra
-        self.parent[rb] = ra
-        self.size[ra] += self.size[rb]
+        self.graph.union(a, b)
 
     def _component_size(self, x):
-        return self.size[self._find(x)]
+        return self.graph.get_component_size(x)
 
     def _count_and_prune(self, window_dict, key, now):
         lst = window_dict.get(key, [])
