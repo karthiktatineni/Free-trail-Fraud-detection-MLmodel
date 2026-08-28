@@ -1611,11 +1611,16 @@ HTML_PAGE = """<!DOCTYPE html>
       // Immediately write key record to Cloud Firestore under user's document
       if (firebaseReady && firebase.firestore) {
         try {
+          const currentUser = firebase.auth().currentUser;
+          if (currentUser) {
+            await currentUser.getIdToken(true).catch(() => {});
+          }
           const db = firebase.firestore();
-          await db.collection('users').document(activeUser.uid).collection('api_keys').document(data.key_id).set({
+          const targetUid = currentUser ? currentUser.uid : activeUser.uid;
+          await db.collection('users').document(targetUid).collection('api_keys').document(data.key_id).set({
             key_id: data.key_id,
             key_hash: data.key_hash || '',
-            user_id: activeUser.uid,
+            user_id: targetUid,
             email: activeUser.email,
             name: label,
             key_type: ktype,
@@ -1624,8 +1629,12 @@ HTML_PAGE = """<!DOCTYPE html>
             created_at: data.created_at || new Date().toISOString(),
             is_active: 1
           }, { merge: true });
+          console.log("Key successfully written to Firestore:", data.key_id);
         } catch (e) {
-          console.log("Firestore key sync note:", e);
+          console.error("Firestore key sync error:", e);
+          if (e.code === 'permission-denied') {
+            toast("⚠️ Firestore permission denied: Check Firestore security rules in Firebase Console.");
+          }
         }
       }
 
