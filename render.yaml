@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: fraudguard-ai-api
+    name: fraud-detection-api
     env: python
     region: oregon
     plan: free

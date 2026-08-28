@@ -1,4 +1,4 @@
-# Multi-Stage Production Dockerfile for FraudGuard AI
+# Multi-Stage Production Dockerfile for Fraud Detection ML Model
 FROM python:3.11-slim as builder
 
 WORKDIR /app

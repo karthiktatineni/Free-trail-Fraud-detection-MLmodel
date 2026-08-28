@@ -59,8 +59,8 @@ async def lifespan(app: FastAPI):
     print("[FastAPI] Shutting down FraudRiskEngine.")
 
 app = FastAPI(
-    title="FraudGuard AI - Real-Time Risk Detection Microservice",
-    description="Enterprise API for Free-Trial Abuse & Multi-Accounting Syndicate Detection.",
+    title="Fraud Detection ML Model - Real-Time Risk Microservice",
+    description="Low-latency (<15ms) real-time risk scoring engine for signup abuse detection.",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -164,7 +164,7 @@ def health_check():
     eng = get_engine()
     return {
         "status": "healthy",
-        "service": "FraudGuard AI Risk Engine",
+        "service": "Fraud Detection ML Model Risk Engine",
         "model_loaded": eng is not None,
         "feature_count": len(FEATURE_COLS)
     }
@@ -238,5 +238,5 @@ def get_drift_status():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    print(f"Starting FraudGuard AI Production Microservice on http://0.0.0.0:{port} ...")
+    print(f"Starting Fraud Detection ML Model Production Microservice on http://0.0.0.0:{port} ...")
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)

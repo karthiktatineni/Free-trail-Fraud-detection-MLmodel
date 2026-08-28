@@ -255,13 +255,13 @@ template = """<!DOCTYPE html>
 <div class="page">
   <div class="doc-header">
     <div>
-      <div class="doc-title">🛡️ FraudGuard AI: Free Trial Abuse Risk Engine</div>
+      <div class="doc-title">🛡️ Fraud Detection ML Model</div>
       <div class="doc-subtitle">Production Architecture, ML Benchmark & Operations Guide</div>
     </div>
     <div class="badge-row">
-      <span class="badge badge-primary">XGBoost v2</span>
-      <span class="badge badge-success">ROC-AUC: 0.976</span>
-      <span class="badge badge-warning">Recall: 95.1%</span>
+      <span class="badge badge-primary">ML Risk Pipeline</span>
+      <span class="badge badge-success">ROC-AUC: 0.973</span>
+      <span class="badge badge-warning">Recall: 93.8%</span>
     </div>
   </div>
 

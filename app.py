@@ -341,9 +341,9 @@ HTML_PAGE = """<!DOCTYPE html>
     <div class="brand">
       <div class="brand-icon">&#x26E8;</div>
       <div>
-        <div class="brand-title">FraudGuard AI</div>
+        <div class="brand-title">Fraud Detection ML Model</div>
       </div>
-      <span class="brand-badge">XGBoost v2 (ROC-AUC 0.976 | Recall 95.1%)</span>
+      <span class="brand-badge">ML Risk Engine (ROC-AUC 0.973 | Recall 93.8%)</span>
     </div>
     <nav>
       <button class="nav-btn active" onclick="switchTab('scorer')">Live Scorer</button>

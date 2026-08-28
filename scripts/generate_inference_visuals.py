@@ -233,7 +233,7 @@ def create_dashboard_summary():
     ax.axis('off')
     
     # Header
-    ax.text(0.04, 0.96, "FRAUDGUARD AI: 3-BAND POLICY & LIVE SCORING ENGINE", fontsize=15, fontweight='bold', color='#ffffff', va='top')
+    ax.text(0.04, 0.96, "FRAUD DETECTION ML MODEL: 3-BAND POLICY & LIVE SCORING ENGINE", fontsize=15, fontweight='bold', color='#ffffff', va='top')
     ax.text(0.04, 0.91, "Operational Risk Decisioning Framework Across Customer Population", fontsize=10, color='#94a3b8', va='top')
     
     # ------------------ BAND 1: GENUINE ------------------

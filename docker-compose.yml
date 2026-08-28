@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: fraudguard-api
+    container_name: fraud-detection-api
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -21,11 +21,11 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - fraudguard-net
+      - fraud-detection-net
 
   redis:
     image: redis:7.2-alpine
-    container_name: fraudguard-redis
+    container_name: fraud-detection-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -38,11 +38,11 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - fraudguard-net
+      - fraud-detection-net
 
 volumes:
   redis-data:
 
 networks:
-  fraudguard-net:
+  fraud-detection-net:
     driver: bridge
