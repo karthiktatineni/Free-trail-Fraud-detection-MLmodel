@@ -147,10 +147,33 @@ async def authenticate_and_rate_limit(
         api_key = authorization.split("Bearer ")[1].strip()
 
     if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"error": "missing_api_key", "message": "Authentication required. Pass X-API-Key header with your fk_live_... key."}
-        )
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        demo_key = f"demo_{client_ip}"
+        allowed, effective_limit, remaining, reset_in = rate_limiter.check(demo_key, limit=DEFAULT_RATE_LIMIT)
+        response.headers["X-RateLimit-Limit"] = str(effective_limit)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(reset_in)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error": "rate_limit_exceeded",
+                    "message": f"Demo rate limit of {effective_limit} requests/minute exceeded for your IP.",
+                    "retry_after_seconds": reset_in
+                },
+                headers={
+                    "Retry-After": str(reset_in),
+                    "X-RateLimit-Limit": str(effective_limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(reset_in)
+                }
+            )
+        return {
+            "user_id": "usr_demo",
+            "name": "Demo Playground Key",
+            "key_type": "demo",
+            "rate_limit_per_min": DEFAULT_RATE_LIMIT
+        }
 
     # Validate against database
     key_record = validate_api_key(api_key)
@@ -322,6 +345,31 @@ def revoke_key(key_id: str, user_id: str = Query(...)):
     if success:
         return {"status": "success", "message": "Key revoked."}
     raise HTTPException(status_code=404, detail="Key not found or unauthorized.")
+
+
+@app.post("/api/v1/keys/sync", tags=["API Key Management"])
+def sync_keys_from_client(req: Dict[str, Any]):
+    """Syncs active API keys from Firestore to local cache."""
+    uid = req.get("user_id")
+    keys_list = req.get("keys", [])
+    if uid and keys_list:
+        with db_session() as conn:
+            cursor = conn.cursor()
+            for k in keys_list:
+                cursor.execute("""
+                INSERT OR REPLACE INTO api_keys (key_hash, key_id, user_id, name, key_type, masked_key, rate_limit_per_min, created_at, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """, (
+                    k.get("key_hash", ""),
+                    k.get("key_id", ""),
+                    uid,
+                    k.get("name", "API Key"),
+                    k.get("key_type", "live"),
+                    k.get("masked_key", ""),
+                    k.get("rate_limit_per_min", 30),
+                    k.get("created_at", "")
+                ))
+    return {"status": "synced", "count": len(keys_list)}
 
 
 # ----------------- MULTI-TENANT CUSTOMERS -----------------
