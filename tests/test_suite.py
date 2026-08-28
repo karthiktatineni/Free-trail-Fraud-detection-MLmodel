@@ -12,6 +12,7 @@ Unit and Integration Tests for:
 
 import os
 import sys
+import time
 import json
 import unittest
 import numpy as np
@@ -236,6 +237,50 @@ class TestFastAPIEndpoints(unittest.TestCase):
         }
         res = engine_cold.score_event(payload, update_state=False)
         self.assertIn(res["verdict"], ["SUSPICIOUS (STEP-UP)", "REPEATING USER (LIKELY ABUSE)"])
+
+    def test_api_key_creation_and_listing(self):
+        # Create a new API key
+        resp = self.client.post("/api/v1/keys/create", json={"name": "Test Key", "key_type": "live"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["api_key"].startswith("fk_live_"))
+        self.assertEqual(data["rate_limit_per_min"], 60)
+
+        # List keys
+        list_resp = self.client.get("/api/v1/keys/list")
+        self.assertEqual(list_resp.status_code, 200)
+        keys = list_resp.json()["keys"]
+        self.assertGreaterEqual(len(keys), 1)
+
+    def test_rate_limit_headers_and_429_enforcement(self):
+        # Create a dedicated test key
+        create_resp = self.client.post("/api/v1/keys/create", json={"name": "Rate Limit Test", "key_type": "test"})
+        test_key = create_resp.json()["api_key"]
+
+        payload = {
+            "name": "Rate Test User",
+            "email": "rate@gmail.com",
+            "ip_address": "1.1.1.1",
+            "device_id": "d_rate",
+            "payment_token": "p_rate",
+            "area": "london"
+        }
+
+        # First request should return 200 with rate limit headers
+        resp = self.client.post("/api/v1/score", json=payload, headers={"X-API-Key": test_key})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("x-ratelimit-limit", resp.headers)
+        self.assertIn("x-ratelimit-remaining", resp.headers)
+        self.assertIn("x-ratelimit-reset", resp.headers)
+
+        # Exceed rate limit for a low-quota mock key
+        from api import rate_limiter
+        rate_limiter.history[test_key] = [time.time()] * 150  # saturate window
+
+        exceeded_resp = self.client.post("/api/v1/score", json=payload, headers={"X-API-Key": test_key})
+        self.assertEqual(exceeded_resp.status_code, 429)
+        self.assertIn("rate_limit_exceeded", exceeded_resp.json()["detail"]["error"])
+        self.assertIn("retry_after_seconds", exceeded_resp.json()["detail"])
 
 
 if __name__ == "__main__":
