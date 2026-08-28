@@ -249,7 +249,7 @@ def create_user_api_key(
 
 
 def list_user_api_keys(user_id: str) -> List[Dict[str, Any]]:
-    """Returns only keys created explicitly by this user (masked, non-reversible)."""
+    """Returns keys created by this user from SQLite with direct Firestore sync fallback."""
     with db_session() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -259,12 +259,41 @@ def list_user_api_keys(user_id: str) -> List[Dict[str, Any]]:
         ORDER BY created_at DESC
         """, (user_id,))
         rows = cursor.fetchall()
+        keys = [dict(r) for r in rows]
 
-    return [dict(r) for r in rows]
+    if not keys and FIREBASE_INITIALIZED and firestore_client:
+        try:
+            docs = firestore_client.collection("users").document(user_id).collection("api_keys").stream()
+            fs_keys = []
+            for doc in docs:
+                data = doc.to_dict()
+                if data.get("is_active", 1) == 1:
+                    fs_keys.append(data)
+                    with db_session() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                        INSERT OR REPLACE INTO api_keys (key_hash, key_id, user_id, name, key_type, masked_key, rate_limit_per_min, created_at, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """, (
+                            data.get("key_hash", ""),
+                            data.get("key_id", doc.id),
+                            user_id,
+                            data.get("name", "Production API Key"),
+                            data.get("key_type", "live"),
+                            data.get("masked_key", "fk_live_..."),
+                            data.get("rate_limit_per_min", 30),
+                            data.get("created_at", "")
+                        ))
+            if fs_keys:
+                return fs_keys
+        except Exception:
+            pass
+
+    return keys
 
 
 def validate_api_key(api_key: str) -> Optional[Dict[str, Any]]:
-    """Validates incoming API key by computing its SHA-256 hash."""
+    """Validates incoming API key by computing its SHA-256 hash, with Firestore cloud fallback."""
     if not api_key:
         return None
 
@@ -279,7 +308,45 @@ def validate_api_key(api_key: str) -> Optional[Dict[str, Any]]:
         WHERE a.key_hash = ? AND a.is_active = 1
         """, (key_hash,))
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if row:
+            return dict(row)
+
+    if FIREBASE_INITIALIZED and firestore_client:
+        try:
+            docs = firestore_client.collection_group("api_keys").where("key_hash", "==", key_hash).limit(1).stream()
+            for doc in docs:
+                data = doc.to_dict()
+                if data.get("is_active", 1) == 1:
+                    uid = data.get("user_id") or doc.reference.parent.parent.id
+                    with db_session() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                        INSERT OR REPLACE INTO api_keys (key_hash, key_id, user_id, name, key_type, masked_key, rate_limit_per_min, created_at, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """, (
+                            key_hash,
+                            data.get("key_id", doc.id),
+                            uid,
+                            data.get("name", "Production API Key"),
+                            data.get("key_type", "live"),
+                            data.get("masked_key", "fk_live_..."),
+                            data.get("rate_limit_per_min", 30),
+                            data.get("created_at", "")
+                        ))
+                    return {
+                        "key_hash": key_hash,
+                        "key_id": data.get("key_id", doc.id),
+                        "user_id": uid,
+                        "name": data.get("name", "Production API Key"),
+                        "key_type": data.get("key_type", "live"),
+                        "masked_key": data.get("masked_key", "fk_live_..."),
+                        "rate_limit_per_min": data.get("rate_limit_per_min", 30),
+                        "is_active": 1
+                    }
+        except Exception:
+            pass
+
+    return None
 
 
 def revoke_user_api_key(user_id: str, key_id: str) -> bool:

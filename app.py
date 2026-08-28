@@ -1209,6 +1209,63 @@ HTML_PAGE = """<!DOCTYPE html>
       }, 1500);
     }
 
+    let keysUnsubscribe = null;
+    let custsUnsubscribe = null;
+
+    function setupFirestoreListeners(uid) {
+      if (!firebaseReady || !firebase.firestore || !uid) return;
+      const db = firebase.firestore();
+
+      // 1. Real-time API keys listener directly from Cloud Firestore (Multi-device synced)
+      if (keysUnsubscribe) { keysUnsubscribe(); keysUnsubscribe = null; }
+      keysUnsubscribe = db.collection('users').document(uid).collection('api_keys')
+        .onSnapshot(snapshot => {
+          const keys = [];
+          snapshot.forEach(doc => {
+            const k = doc.data();
+            if (k && (k.is_active === undefined || k.is_active === 1)) {
+              keys.push({
+                key_id: k.key_id || doc.id,
+                key_hash: k.key_hash || '',
+                user_id: uid,
+                name: k.name || 'Production API Key',
+                key_type: k.key_type || 'live',
+                masked_key: k.masked_key || 'fk_live_...',
+                rate_limit_per_min: k.rate_limit_per_min || 30,
+                created_at: k.created_at || new Date().toISOString()
+              });
+            }
+          });
+          renderKeysTable(keys);
+          if (keys.length > 0) {
+            fetch('/api/v1/keys/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: uid, keys: keys })
+            }).catch(() => {});
+          }
+        }, err => {
+          console.log("Firestore keys listener note:", err);
+        });
+
+      // 2. Real-time Customer events listener from Cloud Firestore
+      if (custsUnsubscribe) { custsUnsubscribe(); custsUnsubscribe = null; }
+      custsUnsubscribe = db.collection('users').document(uid).collection('customers')
+        .orderBy('created_at', 'desc')
+        .limit(50)
+        .onSnapshot(snapshot => {
+          const custs = [];
+          snapshot.forEach(doc => {
+            custs.push(doc.data());
+          });
+          if (custs.length > 0) {
+            renderCustomers(custs);
+          }
+        }, err => {
+          console.log("Firestore customers listener note:", err);
+        });
+    }
+
     async function applyUserAuth(uid, email, displayName, isVerified = true) {
       try {
         const res = await fetch('/api/v1/auth/session', {
@@ -1224,10 +1281,14 @@ HTML_PAGE = """<!DOCTYPE html>
         document.getElementById('keys-unauth-view').style.display = 'none';
         document.getElementById('keys-auth-view').style.display = 'block';
 
+        // Connect cloud Firestore listeners for permanent multi-device sync
+        setupFirestoreListeners(uid);
+
+        // Fetch fallback
         fetchKeys();
         fetchCustomers();
 
-        // Sync to Firestore
+        // Sync user profile to Firestore
         if (firebaseReady && firebase.firestore) {
           try {
             const db = firebase.firestore();
@@ -1275,8 +1336,12 @@ HTML_PAGE = """<!DOCTYPE html>
     }
 
     async function logoutUser() {
+      if (keysUnsubscribe) { keysUnsubscribe(); keysUnsubscribe = null; }
+      if (custsUnsubscribe) { custsUnsubscribe(); custsUnsubscribe = null; }
       if (firebaseReady) {
-        await firebase.auth().signOut();
+        try {
+          await firebase.auth().signOut();
+        } catch (e) {}
       }
       activeUser = null;
       primaryApiKey = null;
@@ -1400,41 +1465,98 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     }
 
-    // --- API KEYS ---
+    // --- PURE FIRESTORE API KEY MANAGEMENT ---
+    function renderKeysTable(keys) {
+      const tbody = document.getElementById('keys-tbody');
+      tbody.innerHTML = '';
+      userKeyCount = keys ? keys.length : 0;
+      document.getElementById('key-count-stat').innerText = `${userKeyCount} / 3`;
+
+      if (!keys || keys.length === 0) {
+        primaryApiKey = null;
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-dim);">No API keys generated. Click "+ New Key" (max 3 keys).</td></tr>';
+        renderSnippet();
+        return;
+      }
+
+      primaryApiKey = keys[0].masked_key;
+      renderSnippet();
+
+      keys.forEach(k => {
+        const tr = document.createElement('tr');
+        const createdDate = (k.created_at || '').split('T')[0] || '--';
+        tr.innerHTML = `
+          <td style="font-weight:600;">${k.name || 'Production API Key'}</td>
+          <td><span style="font-size:10px; font-family:var(--font-mono); font-weight:600; color:var(--status-green-text);">${(k.key_type || 'live').toUpperCase()}</span></td>
+          <td><code style="color:var(--accent-blue); font-family:var(--font-mono);">${k.masked_key}</code></td>
+          <td style="color:var(--text-muted);">${k.rate_limit_per_min || 30} req/min</td>
+          <td style="color:var(--text-dim);">${createdDate}</td>
+          <td>
+            <button class="btn btn-danger btn-sm" onclick="deleteKey('${k.key_id}', '${(k.name || 'API Key').replace(/'/g, "\\'")}')">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
     async function fetchKeys() {
       if (!activeUser) return;
       try {
-        const res = await fetch(`/api/v1/keys/list?user_id=${activeUser.uid}`);
-        const data = await res.json();
-        const tbody = document.getElementById('keys-tbody');
-        tbody.innerHTML = '';
-        userKeyCount = data.keys.length;
-        document.getElementById('key-count-stat').innerText = `${data.keys.length} / 3`;
+        let keys = [];
 
-        if (data.keys.length === 0) {
-          primaryApiKey = null;
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-dim);">No API keys generated. Click "+ New Key" (max 3 keys).</td></tr>';
-          renderSnippet();
-          return;
+        // 1. Primary: Load directly from Cloud Firestore for this user
+        if (firebaseReady && firebase.firestore) {
+          try {
+            const db = firebase.firestore();
+            const snap = await db.collection('users').document(activeUser.uid).collection('api_keys').get();
+            if (!snap.empty) {
+              snap.forEach(doc => {
+                const k = doc.data();
+                if (k && (k.is_active === undefined || k.is_active === 1)) {
+                  keys.push({
+                    key_id: k.key_id || doc.id,
+                    key_hash: k.key_hash || '',
+                    user_id: activeUser.uid,
+                    name: k.name || 'Production API Key',
+                    key_type: k.key_type || 'live',
+                    masked_key: k.masked_key || 'fk_live_...',
+                    rate_limit_per_min: k.rate_limit_per_min || 30,
+                    created_at: k.created_at || new Date().toISOString()
+                  });
+                }
+              });
+            }
+          } catch (e) {
+            console.log("Firestore keys query note:", e);
+          }
         }
 
-        primaryApiKey = data.keys[0].masked_key;
-        renderSnippet();
+        // 2. Fallback: Load from Backend API if Firestore query was empty
+        if (keys.length === 0) {
+          try {
+            const res = await fetch(`/api/v1/keys/list?user_id=${activeUser.uid}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.keys)) {
+                keys = data.keys;
+              }
+            }
+          } catch (e) {
+            console.log("Backend keys fetch note:", e);
+          }
+        }
 
-        data.keys.forEach(k => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td style="font-weight:600;">${k.name}</td>
-            <td><span style="font-size:10px; font-family:var(--font-mono); font-weight:600; color:var(--status-green-text);">${k.key_type.toUpperCase()}</span></td>
-            <td><code style="color:var(--accent-blue); font-family:var(--font-mono);">${k.masked_key}</code></td>
-            <td style="color:var(--text-muted);">30 req/min</td>
-            <td style="color:var(--text-dim);">${k.created_at.split('T')[0]}</td>
-            <td>
-              <button class="btn btn-danger btn-sm" onclick="deleteKey('${k.key_id}', '${k.name.replace(/'/g, "\\'")}')">Delete</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        });
+        // Render keys
+        renderKeysTable(keys);
+
+        // Sync keys to backend SQLite so backend accepts calls made with these keys
+        if (keys.length > 0) {
+          fetch('/api/v1/keys/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: activeUser.uid, keys: keys })
+          }).catch(() => {});
+        }
       } catch (e) {
         console.log('Key note:', e);
       }
@@ -1478,30 +1600,36 @@ HTML_PAGE = """<!DOCTYPE html>
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         alert(errData.message || errData.error || 'Failed to generate key.');
         return;
       }
 
       const data = await res.json();
       closeKeyModal();
-      fetchKeys();
 
-      // Sync API key to Firestore
+      // Immediately write key record to Cloud Firestore under user's document
       if (firebaseReady && firebase.firestore) {
         try {
           const db = firebase.firestore();
-          db.collection('users').document(activeUser.uid).collection('api_keys').document(data.key_id).set({
+          await db.collection('users').document(activeUser.uid).collection('api_keys').document(data.key_id).set({
             key_id: data.key_id,
+            key_hash: data.key_hash || '',
+            user_id: activeUser.uid,
+            email: activeUser.email,
             name: label,
             key_type: ktype,
             masked_key: data.masked_key,
             rate_limit_per_min: 30,
-            created_at: data.created_at || new Date().toISOString()
-          }).catch(() => {});
-        } catch (e) {}
+            created_at: data.created_at || new Date().toISOString(),
+            is_active: 1
+          }, { merge: true });
+        } catch (e) {
+          console.log("Firestore key sync note:", e);
+        }
       }
 
+      await fetchKeys();
       openKeyRevealModal(data.api_key);
     }
 
@@ -1512,22 +1640,22 @@ HTML_PAGE = """<!DOCTYPE html>
       }
 
       try {
-        const res = await fetch('/api/v1/keys/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: activeUser.uid, key_id: keyId })
-        });
-        const data = await res.json();
-
-        // Delete from Firestore
+        // 1. Delete from Cloud Firestore
         if (firebaseReady && firebase.firestore) {
           try {
-            firebase.firestore().collection('users').document(activeUser.uid).collection('api_keys').document(keyId).delete().catch(() => {});
+            await firebase.firestore().collection('users').document(activeUser.uid).collection('api_keys').document(keyId).delete();
           } catch (e) {}
         }
 
+        // 2. Delete from backend
+        fetch('/api/v1/keys/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: activeUser.uid, key_id: keyId })
+        }).catch(() => {});
+
         toast(`Key "${keyName}" deleted.`);
-        fetchKeys();
+        await fetchKeys();
       } catch (e) {
         toast("Failed to delete key: " + e);
       }
