@@ -193,6 +193,54 @@ class FraudRiskEngine:
             self._union(pay, dev)
             self._union(dev, subnet)
 
+    def _warm_start_from_production(self, records):
+        """
+        Rebuild velocity counters from PRODUCTION customer records (Firestore/SQLite).
+        Unlike _warm_start_from_history (training CSV), this uses actual API-scored
+        events so the engine remembers real signups across server restarts.
+        """
+        loaded = 0
+        for rec in records:
+            pay = str(rec.get("payment_token", "")).strip()
+            ip = str(rec.get("ip_address", "")).strip()
+            dev = str(rec.get("device_id", "")).strip()
+            name_val = str(rec.get("name", "")).strip()
+            name_norm = "".join([c for c in name_val.lower() if c.isalpha() or c == " "]).strip()
+
+            if not pay or not dev:
+                continue
+
+            subnet = ".".join(ip.split(".")[:3])
+
+            created_at = rec.get("created_at", "")
+            try:
+                t = pd.Timestamp(created_at).tz_localize(None)
+            except Exception:
+                t = pd.Timestamp.now()
+
+            self.seen_payment[pay] = self.seen_payment.get(pay, 0) + 1
+            self.seen_ip[ip] = self.seen_ip.get(ip, 0) + 1
+            self.seen_subnet[subnet] = self.seen_subnet.get(subnet, 0) + 1
+            self.seen_device[dev] = self.seen_device.get(dev, 0) + 1
+            if name_norm:
+                self.seen_name[name_norm] = self.seen_name.get(name_norm, 0) + 1
+
+            hour_bucket = t.floor("h")
+            key = (dev, hour_bucket)
+            self.hour_bucket_device[key] = self.hour_bucket_device.get(key, 0) + 1
+
+            self.window_24h_payment.setdefault(pay, []).append(t)
+            self.window_24h_device.setdefault(dev, []).append(t)
+            self.window_24h_ip_subnet.setdefault(subnet, []).append(t)
+
+            self._union(pay, dev)
+            self._union(dev, subnet)
+            loaded += 1
+
+        print(f"[Engine] Production warm-start: {loaded} records "
+              f"(devices={len(self.seen_device)}, payments={len(self.seen_payment)}, "
+              f"IPs={len(self.seen_ip)}, names={len(self.seen_name)})")
+
     def extract_features(self, event, update_state=True):
         name = str(event.get("name", "")).strip()
         name_norm = "".join([c for c in name.lower() if c.isalpha() or c == " "]).strip()

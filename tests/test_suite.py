@@ -186,7 +186,11 @@ class TestFastAPIEndpoints(unittest.TestCase):
         import secrets
         from fastapi.testclient import TestClient
         from api import app, rate_limiter
+        import api as _api
         rate_limiter.history.clear()
+        # Reset engine so tests don't inherit stale production warm-start state
+        _api.engine = None
+        _api.engine = FraudRiskEngine(warm_start=False)
         self.client = TestClient(app)
         self.uid = f"usr_test_{secrets.token_hex(4)}"
         # Register a test tenant
@@ -213,12 +217,14 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertEqual(resp.json()["rate_limit_per_min"], 30)
 
     def test_score_genuine_user(self):
+        import secrets as _s
+        _run_id = _s.token_hex(6)
         payload = {
             "name": "David Smith",
-            "email": "david.smith@gmail.com",
+            "email": f"david.smith.{_run_id}@gmail.com",
             "ip_address": "203.0.113.45",
-            "device_id": "dev_unique_mac_101",
-            "payment_token": "pm_unique_card_101",
+            "device_id": f"dev_unique_mac_{_run_id}",
+            "payment_token": f"pm_unique_card_{_run_id}",
             "area": "london",
             "payment_country": "GB",
             "signup_time": "2026-07-15 14:30:00"

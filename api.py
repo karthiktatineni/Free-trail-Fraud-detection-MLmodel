@@ -40,6 +40,7 @@ from database import (
     list_user_customers,
     search_user_customer,
     push_initial_dataset_to_firebase,
+    load_all_production_customers,
     db_session
 )
 from legal_loader import load_legal_documents, get_legal_document
@@ -100,6 +101,13 @@ def get_engine() -> FraudRiskEngine:
         redis_url = os.environ.get("REDIS_URL")
         print(f"[FastAPI] Initializing FraudRiskEngine (Redis: {redis_url or 'in-memory fallback'})...")
         engine = FraudRiskEngine(warm_start=False, redis_url=redis_url)
+        # Rebuild velocity state from Firestore (survives Render cold-starts)
+        try:
+            production_records = load_all_production_customers()
+            if production_records:
+                engine._warm_start_from_production(production_records)
+        except Exception as e:
+            print(f"[FastAPI] Production warm-start failed (non-fatal): {e}")
     return engine
 
 

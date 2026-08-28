@@ -521,3 +521,60 @@ def push_initial_dataset_to_firebase(batch_limit: int = 200) -> Dict[str, Any]:
 
     batch.commit()
     return {"status": "success", "synced_records": count}
+
+
+def load_all_production_customers() -> List[Dict[str, Any]]:
+    """
+    Load all previously scored customers from Firestore (persistent) or SQLite (fallback).
+    Used to rebuild engine velocity counters on server restart so the model
+    remembers past signups and detects repeat abuse across Render cold-starts.
+    """
+    records = []
+
+    # --- Try Firestore first (survives Render restarts) ---
+    if FIREBASE_INITIALIZED and firestore_client:
+        try:
+            all_users_ref = firestore_client.collection("users").stream()
+            for user_doc in all_users_ref:
+                uid = user_doc.id
+                try:
+                    cust_docs = firestore_client.collection("users").document(uid).collection("customers").stream()
+                    for doc in cust_docs:
+                        data = doc.to_dict()
+                        if data and data.get("payment_token"):
+                            records.append({
+                                "name": data.get("name", ""),
+                                "email": data.get("email", ""),
+                                "ip_address": data.get("ip_address", ""),
+                                "device_id": data.get("device_id", ""),
+                                "payment_token": data.get("payment_token", ""),
+                                "area": data.get("area", ""),
+                                "created_at": data.get("created_at", ""),
+                            })
+                except Exception:
+                    continue
+            if records:
+                print(f"[DB] Loaded {len(records)} production customers from Firestore")
+                return records
+        except Exception as e:
+            print(f"[DB] Firestore customer load failed: {e}")
+
+    # --- Fallback to SQLite (ephemeral on Render but works locally) ---
+    try:
+        with db_session() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT name, email, ip_address, device_id, payment_token, area, created_at
+            FROM customers
+            ORDER BY created_at ASC
+            """)
+            rows = cursor.fetchall()
+            for r in rows:
+                records.append(dict(r))
+        if records:
+            print(f"[DB] Loaded {len(records)} production customers from SQLite")
+    except Exception as e:
+        print(f"[DB] SQLite customer load failed: {e}")
+
+    return records
+

@@ -27,6 +27,7 @@ from database import (
     list_user_customers,
     search_user_customer,
     push_initial_dataset_to_firebase,
+    load_all_production_customers,
     db_session
 )
 from legal_loader import load_legal_documents, get_legal_document
@@ -2960,6 +2961,12 @@ class FraudAppHandler(BaseHTTPRequestHandler):
         global engine
         if engine is None:
             engine = FraudRiskEngine(warm_start=False)
+            try:
+                production_records = load_all_production_customers()
+                if production_records:
+                    engine._warm_start_from_production(production_records)
+            except Exception as e:
+                print(f"[Server] Production warm-start failed (non-fatal): {e}")
 
         if path == "/api/v1/client-logs":
             level = payload.get("level", "INFO")
@@ -3053,6 +3060,12 @@ class FraudAppHandler(BaseHTTPRequestHandler):
             retrain_mod = importlib.import_module("scripts.09_continuous_retraining")
             report = retrain_mod.run_continuous_training()
             engine = FraudRiskEngine(warm_start=False)
+            try:
+                production_records = load_all_production_customers()
+                if production_records:
+                    engine._warm_start_from_production(production_records)
+            except Exception:
+                pass
             self._send_response_json(200, report)
             return
 
@@ -3065,6 +3078,12 @@ def start_server(port=None):
     port = port or int(os.environ.get("PORT", 8080))
     print("Initializing Fraud Risk Engine for Developer Platform...")
     engine = FraudRiskEngine(warm_start=False)
+    try:
+        production_records = load_all_production_customers()
+        if production_records:
+            engine._warm_start_from_production(production_records)
+    except Exception as e:
+        print(f"[Server] Production warm-start failed (non-fatal): {e}")
     server_address = ("0.0.0.0", port)
     httpd = ThreadingHTTPServer(server_address, FraudAppHandler)
     print(f"\n==============================================================")
