@@ -342,8 +342,9 @@ def search_tenant_customer(user_id: str = Query(...), q: str = Query(...)):
 @app.post("/api/v1/model/retrain", tags=["Continuous Learning"])
 def trigger_continuous_retraining():
     """Runs continuous learning model retraining on cumulative production customer data."""
-    from scripts.continuous_retraining import run_continuous_training
-    report = run_continuous_training()
+    import importlib
+    retrain_mod = importlib.import_module("scripts.09_continuous_retraining")
+    report = retrain_mod.run_continuous_training()
     # Reload engine pipeline
     global engine
     engine = None

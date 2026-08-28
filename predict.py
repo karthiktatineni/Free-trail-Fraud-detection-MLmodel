@@ -25,15 +25,14 @@ import pandas as pd
 import numpy as np
 import joblib
 
+import importlib
+
 try:
-    from scripts.redis_feature_store import RedisFeatureStore
+    _redis_mod = importlib.import_module("scripts.17_redis_feature_store")
+    RedisFeatureStore = _redis_mod.RedisFeatureStore
     HAS_REDIS_STORE = True
-except ImportError:
-    try:
-        from redis_feature_store import RedisFeatureStore
-        HAS_REDIS_STORE = True
-    except ImportError:
-        HAS_REDIS_STORE = False
+except Exception:
+    HAS_REDIS_STORE = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")

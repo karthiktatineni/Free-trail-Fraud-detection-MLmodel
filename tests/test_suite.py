@@ -26,7 +26,9 @@ from predict import IncrementalUnionFind, FraudRiskEngine, FEATURE_COLS
 import importlib
 drift_module = importlib.import_module("scripts.07_drift_monitor")
 calculate_psi = drift_module.calculate_psi
-from scripts.redis_feature_store import RedisFeatureStore, InMemorySortedSet
+redis_module = importlib.import_module("scripts.17_redis_feature_store")
+RedisFeatureStore = redis_module.RedisFeatureStore
+InMemorySortedSet = redis_module.InMemorySortedSet
 
 
 class TestUnionFind(unittest.TestCase):

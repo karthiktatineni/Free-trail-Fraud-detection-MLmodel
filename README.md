@@ -275,19 +275,26 @@ Fraud_detection/
 │   └── monitoring/                            # Drift dashboard & Active Learning curves
 │
 ├── scripts/
-│   ├── 01_generate_data.py                    # Non-leaky synthetic dataset generator
-│   ├── 02_eda.py                              # Exploratory data analysis charts
-│   ├── 03_feature_engineering.py              # Causal features & Union-Find graph builder
-│   ├── 04_model_training.py                   # 10-Fold CV, Optuna tuning, cost selection, MLflow
-│   ├── 05_model_evaluation.py                 # Val threshold tuning, bootstrap CIs, fairness audit
-│   ├── 06_risk_scoring_engine.py              # Batch scoring pipeline
-│   ├── 07_drift_monitor.py                    # Continuous PSI & KS drift monitoring engine
-│   ├── 08_active_learning_feedback.py         # Multi-round human-in-the-loop active learning
-│   ├── redis_feature_store.py                 # Redis sorted-set feature store adapter
-│   └── generate_inference_visuals.py          # Inference scorecards and dashboard visuals
+│   ├── 01_generate_data.py                    # 1. Non-leaky synthetic dataset generator with syndicate clusters
+│   ├── 02_eda.py                              # 2. Exploratory data analysis charts & statistical correlations
+│   ├── 03_feature_engineering.py              # 3. Causal feature store & Union-Find graph entity builder
+│   ├── 04_model_training.py                   # 4. 10-Fold CV, Optuna tuning, cost-matrix optimization, MLflow
+│   ├── 05_model_evaluation.py                 # 5. Held-out test evaluation, bootstrap CIs, fairness audit
+│   ├── 06_risk_scoring_engine.py              # 6. Standalone batch scoring engine & decision calibration
+│   ├── 07_drift_monitor.py                    # 7. Continuous PSI & KS statistical drift monitoring
+│   ├── 08_active_learning_feedback.py         # 8. Multi-round human-in-the-loop active learning review
+│   ├── 09_continuous_retraining.py            # 9. Automated pipeline retraining & model version updater
+│   ├── 10_demo_comparison.py                  # 10. Live side-by-side comparison: Genuine vs Syndicate
+│   ├── 11_evaluate_30_scenarios.py            # 11. 30-class unseen behavioral archetype evaluation benchmark
+│   ├── 12_generate_inference_visuals.py       # 12. Inference scorecards, topology charts & latency graphs
+│   ├── 13_generate_pdf_report.py              # 13. End-to-end technical architecture PDF report exporter
+│   ├── 14_stress_test_rate_limit.py           # 14. Multi-threaded burst tester & 30 req/min rate limit validation
+│   ├── 15_upload_datasets_to_firebase.py      # 15. Cloud Firestore initial seed & tenant data synchronization
+│   ├── 16_upload_to_firebase_storage.py       # 16. Cloud Storage backup for datasets, models & visual figures
+│   └── 17_redis_feature_store.py              # 17. Redis distributed sliding-window cache store adapter
 │
 ├── tests/
-│   └── test_suite.py                          # 16 automated unit & integration tests
+│   └── test_suite.py                          # 18 automated unit & integration tests
 │
 ├── .github/
 │   └── workflows/
@@ -295,6 +302,8 @@ Fraud_detection/
 │
 ├── api.py                                     # Production FastAPI Microservice (<15ms)
 ├── app.py                                     # Interactive Web GUI Dashboard
+├── database.py                                # Multi-tenant SQLite & Cloud Firestore persistence
+├── firestore.rules                            # Cloud Firestore multi-tenant security rules
 ├── predict.py                                 # Programmatic & CLI scoring engine
 ├── Dockerfile                                 # Multi-stage production container
 ├── docker-compose.yml                         # FastAPI + Redis deployment
@@ -304,31 +313,40 @@ Fraud_detection/
 
 ---
 
-## 10. Step-by-Step Pipeline Execution
+## 10. Step-by-Step Pipeline Execution Sequence
 
-Run the complete pipeline from scratch:
+Run the complete pipeline from scratch in sequential order:
 
 ```bash
-# 1. Generate Non-Leaky Synthetic Dataset
-py scripts/01_generate_data.py
+# [Stage 1: Data Pipeline]
+py scripts/01_generate_data.py               # Generates synthetic multi-accounting signup events
+py scripts/02_eda.py                         # Generates exploratory data analysis visuals
+py scripts/03_feature_engineering.py         # Computes causal sliding windows & graph clusters
 
-# 2. Generate Exploratory Data Analysis Visuals
-py scripts/02_eda.py
+# [Stage 2: Model Lifecycle & Evaluation]
+py scripts/04_model_training.py              # Trains XGBoost/LightGBM with 10-Fold CV & MLflow
+py scripts/05_model_evaluation.py            # Evaluates test metrics, bootstrap CIs & cost threshold
+py scripts/06_risk_scoring_engine.py         # Batch scoring calibration & policy check
 
-# 3. Compute Causal Feature Matrix & Entity Graph
-py scripts/03_feature_engineering.py
+# [Stage 3: MLOps Monitoring & Active Learning]
+py scripts/07_drift_monitor.py               # Computes PSI drift on production data distribution
+py scripts/08_active_learning_feedback.py    # Simulates human-in-the-loop uncertainty sampling
+py scripts/09_continuous_retraining.py       # Retrains model on cumulative customer signups
 
-# 4. Train Models with 10-Fold CV & Optuna Hyperparameter Search
-py scripts/04_model_training.py
+# [Stage 4: Demos, Visuals & Reports]
+py scripts/10_demo_comparison.py             # Side-by-side comparison: Genuine vs Syndicate
+py scripts/11_evaluate_30_scenarios.py       # Comprehensive 30-class unseen archetype benchmark
+py scripts/12_generate_inference_visuals.py  # Generates high-res visual diagrams
+py scripts/13_generate_pdf_report.py         # Compiles full architecture report to PDF
 
-# 5. Evaluate on Held-Out Test Set (Validation Thresholding & Bootstrap CIs)
-py scripts/05_model_evaluation.py
+# [Stage 5: Live API Stress Testing & Cloud Sync]
+py scripts/14_stress_test_rate_limit.py      # Concurrent stress test & rate-limit validation
+py scripts/15_upload_datasets_to_firebase.py # Seeds datasets to Cloud Firestore
+py scripts/16_upload_to_firebase_storage.py  # Backs up models & visuals to Cloud Storage
+py scripts/17_redis_feature_store.py         # Tests low-latency Redis sliding-window cache
 
-# 6. Run Batch Risk Scoring Engine
-py scripts/06_risk_scoring_engine.py
-
-# 7. Run Automated Test Suite
-py -m pytest tests/test_suite.py -v
+# [Stage 6: Automated Test Suite]
+py -m pytest tests/test_suite.py -v          # Runs all 18 automated unit and integration tests
 ```
 
 ---

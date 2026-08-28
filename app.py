@@ -1934,8 +1934,9 @@ class FraudAppHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/v1/model/retrain":
-            from scripts.continuous_retraining import run_continuous_training
-            report = run_continuous_training()
+            import importlib
+            retrain_mod = importlib.import_module("scripts.09_continuous_retraining")
+            report = retrain_mod.run_continuous_training()
             engine = FraudRiskEngine(warm_start=True)
             self._send_response_json(200, report)
             return
