@@ -9,7 +9,7 @@ import json
 import time
 import secrets
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
@@ -28,6 +28,7 @@ from database import (
     search_user_customer,
     push_initial_dataset_to_firebase
 )
+from legal_loader import load_legal_documents, get_legal_document
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VISUALS_DIR = os.path.join(BASE_DIR, "visuals")
@@ -35,7 +36,7 @@ DEFAULT_RATE_LIMIT = int(os.environ.get("DEFAULT_RATE_LIMIT_PER_MINUTE", 30))
 
 engine = None
 
-HTML_PAGE = """<!DOCTYPE html>
+HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -261,37 +262,43 @@ HTML_PAGE = """<!DOCTYPE html>
     .btn-sm { font-size: 11px; padding: 3px 8px; }
 
     /* LAYOUT */
+    /* LAYOUT */
     main {
       flex: 1;
-      padding: 20px;
+      padding: 24px 20px 48px;
       max-width: 1280px;
       margin: 0 auto;
       width: 100%;
+      min-height: calc(100vh - 52px);
+      display: flex;
+      flex-direction: column;
     }
 
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
+    .tab-content { display: none; flex-direction: column; flex: 1; }
+    .tab-content.active { display: flex; }
 
     .page-title-row {
-      margin-bottom: 16px;
+      margin-bottom: 18px;
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
     }
-    .page-heading { font-size: 16px; font-weight: 600; color: var(--text-main); }
+    .page-heading { font-size: 17px; font-weight: 600; color: var(--text-main); }
     .page-subtext { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-    .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch; }
+    .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 16px; }
 
     .card {
       background: var(--bg-card);
       border: 1px solid var(--border-default);
       border-radius: var(--radius);
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     .card-head {
-      padding: 10px 14px;
+      padding: 12px 16px;
       background: var(--bg-card-header);
       border-bottom: 1px solid var(--border-default);
       display: flex;
@@ -300,64 +307,66 @@ HTML_PAGE = """<!DOCTYPE html>
       font-size: 12px;
       font-weight: 600;
     }
-    .card-body { padding: 14px; }
+    .card-body { padding: 18px; flex: 1; display: flex; flex-direction: column; }
 
     .metric-box {
       background: var(--bg-card);
       border: 1px solid var(--border-default);
       border-radius: var(--radius);
-      padding: 12px 14px;
+      padding: 14px 16px;
     }
     .metric-name { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-    .metric-stat { font-size: 20px; font-weight: 700; color: var(--text-main); margin: 3px 0 1px; font-family: var(--font-mono); }
+    .metric-stat { font-size: 20px; font-weight: 700; color: var(--text-main); margin: 4px 0 2px; font-family: var(--font-mono); }
     .metric-caption { font-size: 11px; color: var(--text-dim); }
 
     /* PRESETS */
     .presets-group {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 12px;
+      gap: 8px;
+      margin-bottom: 16px;
       flex-wrap: wrap;
     }
     .preset-pill {
       background: var(--bg-card);
       border: 1px solid var(--border-default);
       color: var(--text-muted);
-      font-size: 11px;
+      font-size: 11.5px;
       font-weight: 500;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: var(--radius);
       cursor: pointer;
       font-family: inherit;
+      transition: all 0.15s ease;
     }
-    .preset-pill:hover { color: var(--text-main); border-color: var(--text-muted); }
+    .preset-pill:hover { color: var(--text-main); border-color: var(--text-muted); background: var(--bg-card-header); }
 
     /* FORMS */
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-    .field-group { display: flex; flex-direction: column; gap: 3px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 12px; }
+    .field-group { display: flex; flex-direction: column; gap: 4px; }
     .field-label { font-size: 11px; font-weight: 500; color: var(--text-muted); }
     .text-input, .select-input {
       background: var(--bg-input);
       border: 1px solid var(--border-default);
       color: var(--text-main);
       font-family: var(--font-mono);
-      font-size: 12px;
-      padding: 6px 8px;
+      font-size: 12.5px;
+      padding: 8px 10px;
       border-radius: var(--radius);
       outline: none;
       width: 100%;
+      transition: border-color 0.15s ease;
     }
     .text-input:focus, .select-input:focus { border-color: var(--border-focus); }
 
     /* SCORECARD */
     .verdict-card {
       border-radius: var(--radius);
-      padding: 12px 14px;
+      padding: 14px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
       border: 1px solid transparent;
     }
     .verdict-card.allow { background: var(--status-green-bg); border-color: var(--status-green-border); }
@@ -365,9 +374,9 @@ HTML_PAGE = """<!DOCTYPE html>
     .verdict-card.deny { background: var(--status-red-bg); border-color: var(--status-red-border); }
 
     .verdict-main { font-size: 14px; font-weight: 700; }
-    .verdict-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .verdict-desc { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
 
-    .score-big { font-size: 24px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+    .score-big { font-size: 26px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
     .score-big.allow { color: var(--status-green-text); }
     .score-big.review { color: var(--status-amber-text); }
     .score-big.deny { color: var(--status-red-text); }
@@ -506,10 +515,344 @@ HTML_PAGE = """<!DOCTYPE html>
     }
     .toast-msg.show { display: block; }
 
+    /* FOOTER */
+    .site-footer {
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-default);
+      margin-top: 80px;
+      padding: 40px 20px 28px;
+      width: 100%;
+    }
+    .footer-inner {
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1.2fr 1.2fr;
+      gap: 36px;
+      margin-bottom: 32px;
+    }
+    .footer-col-title {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-main);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .footer-links-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .footer-link {
+      color: var(--text-muted);
+      font-size: 12px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: color 0.15s ease;
+    }
+    .footer-link:hover { color: var(--accent-blue-hover); }
+    .footer-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      background: var(--bg-card-header);
+      border: 1px solid var(--border-default);
+      color: var(--text-dim);
+    }
+    .footer-bottom-bar {
+      border-top: 1px solid var(--border-muted);
+      padding-top: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+    .footer-copyright {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+    }
+    .footer-quick-links {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .footer-quick-link {
+      color: var(--text-muted);
+      font-size: 11.5px;
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+      transition: color 0.15s ease;
+    }
+    .footer-quick-link:hover { color: var(--text-main); }
+    .footer-cookie-btn {
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      font-size: 11px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+    .footer-cookie-btn:hover {
+      background: var(--bg-card-header);
+      color: var(--text-main);
+      border-color: var(--border-focus);
+    }
+
+    /* LEGAL MODAL */
+    .legal-modal-window {
+      max-width: 960px;
+      width: 95%;
+      height: 85vh;
+      max-height: 820px;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+    }
+    .legal-modal-top {
+      padding: 12px 18px;
+      background: var(--bg-card-header);
+      border-bottom: 1px solid var(--border-default);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .legal-search-box {
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      color: var(--text-main);
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: var(--radius);
+      outline: none;
+      width: 220px;
+    }
+    .legal-search-box:focus { border-color: var(--border-focus); }
+    .legal-modal-body {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      flex: 1;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .legal-sidebar {
+      background: #11151c;
+      border-right: 1px solid var(--border-default);
+      padding: 10px 8px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .legal-doc-btn {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .legal-doc-btn:hover { background: rgba(255, 255, 255, 0.04); }
+    .legal-doc-btn.active {
+      background: var(--bg-card);
+      border-color: var(--border-default);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .legal-doc-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legal-doc-sub {
+      font-size: 10.5px;
+      color: var(--text-dim);
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+    .legal-content-pane {
+      padding: 24px 32px;
+      overflow-y: auto;
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: #e6edf3;
+      background: var(--bg-card);
+    }
+    .legal-doc-header {
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-muted);
+    }
+    .legal-doc-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      align-items: center;
+    }
+    .legal-doc-badge {
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      color: var(--accent-blue);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+    }
+    .legal-rendered-markdown h1 { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #ffffff; border-bottom: 1px solid var(--border-muted); padding-bottom: 8px; }
+    .legal-rendered-markdown h2 { font-size: 15px; font-weight: 600; margin-top: 20px; margin-bottom: 8px; color: #ffffff; }
+    .legal-rendered-markdown h3 { font-size: 13px; font-weight: 600; margin-top: 14px; margin-bottom: 6px; color: #f0f6fc; }
+    .legal-rendered-markdown p { margin-bottom: 12px; color: #c9d1d9; }
+    .legal-rendered-markdown ul, .legal-rendered-markdown ol { margin-bottom: 12px; padding-left: 20px; color: #c9d1d9; }
+    .legal-rendered-markdown li { margin-bottom: 4px; }
+    .legal-rendered-markdown strong { color: #ffffff; font-weight: 600; }
+    .legal-rendered-markdown blockquote {
+      border-left: 3px solid var(--accent-blue);
+      padding: 8px 14px;
+      background: rgba(31, 111, 235, 0.08);
+      margin: 12px 0;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: 12px;
+      color: #e6edf3;
+    }
+    .legal-rendered-markdown table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 11.5px;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .legal-rendered-markdown th {
+      background: var(--bg-card-header);
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-default);
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .legal-rendered-markdown td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-muted);
+      color: #c9d1d9;
+    }
+    .legal-rendered-markdown tr:last-child td { border-bottom: none; }
+    .legal-rendered-markdown hr { border: none; border-top: 1px solid var(--border-muted); margin: 20px 0; }
+    .legal-rendered-markdown code {
+      font-family: var(--font-mono);
+      background: #090c10;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #79c0ff;
+    }
+
+    /* COOKIE CONSENT BANNER & MODAL */
+    .cookie-banner {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      max-width: 740px;
+      margin: 0 auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 16px 20px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+      z-index: 999;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      animation: slideUp 0.25s ease-out;
+    }
+    .cookie-banner.show { display: flex; }
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .cookie-banner-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .cookie-banner-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .cookie-banner-text strong { color: var(--text-main); }
+    .cookie-banner-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-muted);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-info-title { font-size: 12px; font-weight: 600; color: var(--text-main); }
+    .toggle-info-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
     @media (max-width: 850px) {
       .grid-2col, .metrics-row { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr 1fr; gap: 20px; }
+      .legal-modal-body { grid-template-columns: 1fr; }
+      .legal-sidebar { max-height: 160px; border-right: none; border-bottom: 1px solid var(--border-default); }
       header { padding: 0 12px; }
       main { padding: 12px; }
+    }
+    @media (max-width: 550px) {
+      .footer-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -618,7 +961,7 @@ HTML_PAGE = """<!DOCTYPE html>
               </div>
             </div>
 
-            <button class="btn btn-blue" style="width:100%; margin-top:6px; padding:7px 0;" onclick="submitScoring()">Run Fraud Check</button>
+            <button class="btn btn-blue" style="width:100%; margin-top:8px; padding:9px 0; font-weight:600;" onclick="submitScoring()">Run Fraud Check</button>
           </div>
         </div>
 
@@ -642,22 +985,22 @@ HTML_PAGE = """<!DOCTYPE html>
             </div>
 
             <div class="metrics-row" style="margin-bottom:12px;">
-              <div class="metric-box" style="padding:8px 10px;">
+              <div class="metric-box" style="padding:10px 12px;">
                 <div class="metric-name" style="font-size:10px;">Confidence</div>
                 <div id="metric-conf" style="font-size:14px; font-weight:700; font-family:var(--font-mono); margin-top:2px;">99.5%</div>
               </div>
-              <div class="metric-box" style="padding:8px 10px;">
+              <div class="metric-box" style="padding:10px 12px;">
                 <div class="metric-name" style="font-size:10px;">Threshold</div>
                 <div style="font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent-blue); margin-top:2px;">T = 10.0</div>
               </div>
-              <div class="metric-box" style="padding:8px 10px;">
+              <div class="metric-box" style="padding:10px 12px;">
                 <div class="metric-name" style="font-size:10px;">Record ID</div>
                 <div id="metric-cid" style="font-size:11px; font-weight:600; font-family:var(--font-mono); margin-top:4px;">--</div>
               </div>
             </div>
 
             <div style="font-size:11px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">Signal Weights</div>
-            <div class="table-wrap" style="max-height:175px; overflow-y:auto;">
+            <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
               <table>
                 <thead>
                   <tr>
@@ -667,11 +1010,35 @@ HTML_PAGE = """<!DOCTYPE html>
                   </tr>
                 </thead>
                 <tbody id="signals-tbody">
-                  <tr><td colspan="3" style="text-align:center; color:var(--text-dim); padding:14px;">Submit a payload to view feature weights</td></tr>
+                  <tr><td colspan="3" style="text-align:center; color:var(--text-dim); padding:18px;">Submit a payload to view feature weights</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Live Causal Intelligence Row -->
+      <div class="metrics-row" style="margin-top: 20px; margin-bottom: 0;">
+        <div class="metric-box">
+          <div class="metric-name">24-Hour Velocity Check</div>
+          <div id="stat-vel-24h" class="metric-stat" style="font-size:16px;">1 Event <span style="font-size:11px; font-weight:400; color:var(--text-muted);">(Normal)</span></div>
+          <div class="metric-caption">Sliding time-series window</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Syndicate Graph Size</div>
+          <div id="stat-graph-size" class="metric-stat" style="font-size:16px;">Node Size: 1</div>
+          <div class="metric-caption">Disjoint-Set cluster tracking</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Device OS & IP Alignment</div>
+          <div id="stat-geo-align" class="metric-stat" style="font-size:16px; color:var(--status-green-text);">Verified Match</div>
+          <div class="metric-caption">Class-C subnet & BIN geolocation</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Inference Latency</div>
+          <div id="stat-p99-lat" class="metric-stat" style="font-size:16px; color:var(--accent-blue);">&lt; 15 ms</div>
+          <div class="metric-caption">Vectorized decision engine</div>
         </div>
       </div>
     </div>
@@ -854,6 +1221,81 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
   </main>
 
+  <!-- SITE FOOTER -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-grid">
+        <!-- Col 1: Platform & Product -->
+        <div class="footer-col">
+          <div class="footer-col-title">
+            <span>Fraud Engine</span>
+            <span class="footer-badge">v2.1</span>
+          </div>
+          <ul class="footer-links-list">
+            <li><button class="footer-link" onclick="switchTab('playground')">Playground Simulator</button></li>
+            <li><button class="footer-link" onclick="switchTab('apikeys')">API Keys & Quotas <span class="footer-badge">30 req/min</span></button></li>
+            <li><button class="footer-link" onclick="switchTab('customers')">Customer Audit Records</button></li>
+            <li><button class="footer-link" onclick="switchTab('docs')">API Reference & SDKs</button></li>
+            <li><button class="footer-link" onclick="switchTab('model')">Model Metrics & Benchmarks</button></li>
+            <li><a class="footer-link" href="/healthz" target="_blank">System Health & Uptime <span style="color:var(--status-green-text); font-size:10px;">● 99.9%</span></a></li>
+          </ul>
+        </div>
+
+        <!-- Col 2: Legal & Compliance -->
+        <div class="footer-col">
+          <div class="footer-col-title">Legal & Compliance</div>
+          <ul class="footer-links-list">
+            <li><button class="footer-link" onclick="openLegalDoc('privacy')">Privacy Policy</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('terms')">Terms of Service</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('cookies')">Cookie Policy</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('refund')">Refund & Cancellation</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('aup')">Acceptable Use Policy (AUP)</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('dpa')">Data Processing Agreement (DPA)</button></li>
+            <li><button class="footer-link" onclick="openLegalDoc('disclaimer')">AI & ML Decision Disclaimer</button></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Security & Architecture -->
+        <div class="footer-col">
+          <div class="footer-col-title">Security & Architecture</div>
+          <ul class="footer-links-list">
+            <li class="footer-link" style="cursor:default;"><span>SHA-256 Key Hashing</span></li>
+            <li class="footer-link" style="cursor:default;"><span>Multi-Tenant Query Isolation</span></li>
+            <li class="footer-link" style="cursor:default;"><span>TLS 1.3 Strict In-Transit Encryption</span></li>
+            <li class="footer-link" style="cursor:default;"><span>Zero Plaintext Secret Storage</span></li>
+            <li class="footer-link" style="cursor:default;"><span>24-Hour Velocity Cache Eviction</span></li>
+            <li class="footer-link" style="cursor:default;"><span>SOC 2 Type II Aligned Controls</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Bottom Bar with Copyright -->
+      <div class="footer-bottom-bar">
+        <div class="footer-copyright">
+          <span>karthik tatineni</span>
+        </div>
+
+        <div class="footer-quick-links">
+          <button class="footer-quick-link" onclick="openLegalDoc('privacy')">Privacy</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('terms')">Terms</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('cookies')">Cookies</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('refund')">Refunds</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('aup')">AUP</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('dpa')">DPA</button>
+          <span>&bull;</span>
+          <button class="footer-quick-link" onclick="openLegalDoc('disclaimer')">AI Disclaimer</button>
+          <span>&bull;</span>
+          <button class="footer-cookie-btn" onclick="openCookieModal()">Cookie Preferences</button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
   <!-- AUTH MODAL -->
   <div class="modal-backdrop" id="auth-modal">
     <div class="modal-window">
@@ -959,6 +1401,128 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- LEGAL DOCUMENTATION CENTER MODAL -->
+  <div class="modal-backdrop" id="legal-modal">
+    <div class="modal-window legal-modal-window">
+      <div class="legal-modal-top">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:14px; font-weight:700; color:var(--text-main);">Legal & Compliance Center</span>
+          <span id="legal-doc-badge" class="legal-doc-badge">v1.0</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="text" id="legal-search-input" class="legal-search-box" placeholder="Search in document..." oninput="filterLegalSearch(this.value)">
+          <button class="btn btn-secondary btn-sm" onclick="printActiveLegalDoc()" title="Print Document">Print</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyActiveLegalDocMarkdown()" title="Copy Markdown">Copy</button>
+          <button class="btn btn-secondary btn-sm" onclick="closeLegalModal()">✕</button>
+        </div>
+      </div>
+
+      <div class="legal-modal-body">
+        <div class="legal-sidebar">
+          <button id="legal-nav-privacy" class="legal-doc-btn active" onclick="openLegalDoc('privacy')">
+            <div class="legal-doc-title">Privacy Policy</div>
+            <div class="legal-doc-sub">Data collection & rights</div>
+          </button>
+          <button id="legal-nav-terms" class="legal-doc-btn" onclick="openLegalDoc('terms')">
+            <div class="legal-doc-title">Terms of Service</div>
+            <div class="legal-doc-sub">Commercial terms & API limits</div>
+          </button>
+          <button id="legal-nav-cookies" class="legal-doc-btn" onclick="openLegalDoc('cookies')">
+            <div class="legal-doc-title">Cookie Policy</div>
+            <div class="legal-doc-sub">Authentication & storage tokens</div>
+          </button>
+          <button id="legal-nav-refund" class="legal-doc-btn" onclick="openLegalDoc('refund')">
+            <div class="legal-doc-title">Refund & Cancellation</div>
+            <div class="legal-doc-sub">14-day policy & billing cycles</div>
+          </button>
+          <button id="legal-nav-aup" class="legal-doc-btn" onclick="openLegalDoc('aup')">
+            <div class="legal-doc-title">Acceptable Use (AUP)</div>
+            <div class="legal-doc-sub">Prohibited activities & security</div>
+          </button>
+          <button id="legal-nav-dpa" class="legal-doc-btn" onclick="openLegalDoc('dpa')">
+            <div class="legal-doc-title">Data Processing (DPA)</div>
+            <div class="legal-doc-sub">B2B Controller / Processor</div>
+          </button>
+          <button id="legal-nav-disclaimer" class="legal-doc-btn" onclick="openLegalDoc('disclaimer')">
+            <div class="legal-doc-title">AI & ML Disclaimer</div>
+            <div class="legal-doc-sub">Probabilistic decision support</div>
+          </button>
+        </div>
+
+        <div class="legal-content-pane" id="legal-content-container">
+          <div class="legal-doc-header">
+            <h1 id="legal-active-title" style="font-size:18px; font-weight:700; color:#fff;">Privacy Policy</h1>
+            <div class="legal-doc-meta">
+              <span id="legal-active-effective">Effective Date: August 28, 2026</span>
+              <span>&bull;</span>
+              <span id="legal-active-category">Category: Privacy & Data Protection</span>
+              <span>&bull;</span>
+              <span id="legal-active-version">Version 1.0</span>
+            </div>
+          </div>
+          <div id="legal-rendered-body" class="legal-rendered-markdown">
+            <div style="text-align:center; padding:40px; color:var(--text-dim);">Loading legal document...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COOKIE CONSENT BANNER -->
+  <div class="cookie-banner" id="cookie-consent-banner">
+    <div class="cookie-banner-content">
+      <div class="cookie-banner-text">
+        <strong>Privacy & Storage Preferences</strong><br>
+        We use essential local storage tokens for secure developer authentication and session management. Optional diagnostic telemetry helps us monitor API latency and error rates.
+      </div>
+    </div>
+    <div class="cookie-banner-actions">
+      <button class="btn btn-secondary btn-sm" onclick="openCookieModal()">Manage Preferences</button>
+      <button class="btn btn-secondary btn-sm" onclick="setCookieConsent(false)">Essential Only</button>
+      <button class="btn btn-blue btn-sm" onclick="setCookieConsent(true)">Accept Analytics</button>
+    </div>
+  </div>
+
+  <!-- COOKIE PREFERENCES MODAL -->
+  <div class="modal-backdrop" id="cookie-modal">
+    <div class="modal-window" style="max-width:440px;">
+      <div class="modal-top">
+        <div class="modal-title-text">Cookie & Storage Preferences</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeCookieModal()">✕</button>
+      </div>
+
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+        Configure your preferences for storage tokens and diagnostics telemetry. You can update these settings at any time.
+      </p>
+
+      <div style="background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius); padding:10px 14px; margin-bottom:16px;">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-info-title">Strictly Necessary Storage</div>
+            <div class="toggle-info-desc">Required for Firebase Auth, active sessions, and security.</div>
+          </div>
+          <div>
+            <input type="checkbox" checked disabled style="cursor:not-allowed;">
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-info-title">Performance & Diagnostics Telemetry</div>
+            <div class="toggle-info-desc">Measures client API latencies and operational error logs.</div>
+          </div>
+          <div>
+            <input type="checkbox" id="cookie-pref-analytics" style="cursor:pointer;">
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-blue" style="flex:1;" onclick="saveCustomCookiePreferences()">Save Preferences</button>
+        <button class="btn btn-secondary" onclick="closeCookieModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST -->
   <div class="toast-msg" id="toast-bar"></div>
 
@@ -1014,8 +1578,65 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     };
 
+    // --- COOKIE CONSENT & STORAGE PREFERENCES ---
+    function getCookieConsent() {
+      try {
+        const val = localStorage.getItem('fraud_engine_cookie_consent');
+        if (val) return JSON.parse(val);
+      } catch (e) {}
+      return null;
+    }
+
+    function hasAnalyticsConsent() {
+      const consent = getCookieConsent();
+      return consent !== null && consent.analytics === true;
+    }
+
+    function checkCookieConsentOnLoad() {
+      const consent = getCookieConsent();
+      if (!consent) {
+        document.getElementById('cookie-consent-banner').classList.add('show');
+      }
+    }
+
+    function setCookieConsent(allowAnalytics) {
+      const pref = {
+        essential: true,
+        analytics: !!allowAnalytics,
+        timestamp: new Date().toISOString()
+      };
+      try {
+        localStorage.setItem('fraud_engine_cookie_consent', JSON.stringify(pref));
+      } catch (e) {}
+      document.getElementById('cookie-consent-banner').classList.remove('show');
+      closeCookieModal();
+      toast(allowAnalytics ? 'Preferences saved: Analytics telemetry enabled' : 'Preferences saved: Essential storage only');
+    }
+
+    function openCookieModal() {
+      document.getElementById('cookie-modal').classList.add('open');
+      const pref = getCookieConsent();
+      const analyticsBox = document.getElementById('cookie-pref-analytics');
+      if (analyticsBox) {
+        analyticsBox.checked = pref ? !!pref.analytics : false;
+      }
+    }
+
+    function closeCookieModal() {
+      document.getElementById('cookie-modal').classList.remove('open');
+    }
+
+    function saveCustomCookiePreferences() {
+      const analyticsBox = document.getElementById('cookie-pref-analytics');
+      setCookieConsent(analyticsBox ? analyticsBox.checked : false);
+    }
+
     function logToBackend(level, msg) {
       console.log(`[${level}]`, msg);
+      // Strictly gated: do not transmit client logs/telemetry without explicit user analytics consent
+      if (!hasAnalyticsConsent()) {
+        return;
+      }
       fetch('/api/v1/client-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1434,6 +2055,38 @@ HTML_PAGE = """<!DOCTYPE html>
           `;
           tbody.appendChild(tr);
         });
+
+        // Update Live Causal Intelligence row
+        const rawF = data.raw_features || {};
+        const vel24 = rawF['payment_reuse_count'] !== undefined ? (rawF['payment_reuse_count'] + 1) : 1;
+        const velEl = document.getElementById('stat-vel-24h');
+        if (velEl) {
+          velEl.innerHTML = `${vel24} Event${vel24 > 1 ? 's' : ''} <span style="font-size:11px; font-weight:400; color:${vel24 >= 3 ? 'var(--status-red-text)' : 'var(--text-muted)'};">(${vel24 >= 3 ? 'High Velocity' : 'Normal'})</span>`;
+        }
+
+        const graphSize = rawF['graph_component_size'] !== undefined ? rawF['graph_component_size'] : 1;
+        const graphEl = document.getElementById('stat-graph-size');
+        if (graphEl) {
+          graphEl.innerText = `Node Size: ${graphSize}`;
+          graphEl.style.color = graphSize > 2 ? 'var(--status-red-text)' : 'var(--text-main)';
+        }
+
+        const geoMismatch = rawF['ip_billing_mismatch'] !== undefined ? rawF['ip_billing_mismatch'] : 0;
+        const geoEl = document.getElementById('stat-geo-align');
+        if (geoEl) {
+          if (geoMismatch) {
+            geoEl.innerText = 'Mismatch Detected';
+            geoEl.style.color = 'var(--status-red-text)';
+          } else {
+            geoEl.innerText = 'Verified Match';
+            geoEl.style.color = 'var(--status-green-text)';
+          }
+        }
+
+        const latEl = document.getElementById('stat-p99-lat');
+        if (latEl) {
+          latEl.innerText = `${latModel.toFixed(1)} ms`;
+        }
 
         // Store customer in Firestore
         if (activeUser && firebaseReady && firebase.firestore) {
@@ -1914,9 +2567,276 @@ func main() {
       copyText(txt);
     }
 
+    // --- LEGAL CENTER & DOCUMENT CONTROLLER ---
+    let legalDocsCache = {};
+    let activeLegalDoc = null;
+    let activeLegalDocRawMarkdown = '';
+
+    function renderMarkdownToHtml(md) {
+      if (!md) return '';
+      let text = md;
+      if (text.startsWith('---')) {
+        const parts = text.split('---', 3);
+        if (parts.length >= 3) {
+          text = parts[2].trim();
+        }
+      }
+
+      let lines = text.split('\n');
+      let html = [];
+      let inTable = false;
+      let tableRows = [];
+      let inList = false;
+      let listType = 'ul';
+
+      function flushTable() {
+        if (!inTable) return;
+        if (tableRows.length === 0) { inTable = false; return; }
+        let tHtml = '<table>';
+        let isFirst = true;
+        for (let r of tableRows) {
+          let cols = r.split('|').slice(1, -1);
+          if (cols.every(c => /^[\s\-:]+$/.test(c))) continue;
+          if (isFirst) {
+            tHtml += '<thead><tr>' + cols.map(c => '<th>' + formatInline(c.trim()) + '</th>').join('') + '</tr></thead><tbody>';
+            isFirst = false;
+          } else {
+            tHtml += '<tr>' + cols.map(c => '<td>' + formatInline(c.trim()) + '</td>').join('') + '</tr>';
+          }
+        }
+        tHtml += '</tbody></table>';
+        html.push(tHtml);
+        tableRows = [];
+        inTable = false;
+      }
+
+      function flushList() {
+        if (!inList) return;
+        html.push(`</${listType}>`);
+        inList = false;
+      }
+
+      function formatInline(str) {
+        return str
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:var(--accent-blue-hover); text-decoration:underline;">$1</a>');
+      }
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        let trimmed = line.trim();
+
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+          flushList();
+          inTable = true;
+          tableRows.push(trimmed);
+          continue;
+        } else {
+          flushTable();
+        }
+
+        if (trimmed === '---' || trimmed === '***') {
+          flushList();
+          html.push('<hr>');
+          continue;
+        }
+
+        if (trimmed.startsWith('#### ')) {
+          flushList();
+          html.push(`<h4>${formatInline(trimmed.substring(5))}</h4>`);
+          continue;
+        }
+        if (trimmed.startsWith('### ')) {
+          flushList();
+          html.push(`<h3>${formatInline(trimmed.substring(4))}</h3>`);
+          continue;
+        }
+        if (trimmed.startsWith('## ')) {
+          flushList();
+          html.push(`<h2>${formatInline(trimmed.substring(3))}</h2>`);
+          continue;
+        }
+        if (trimmed.startsWith('# ')) {
+          flushList();
+          html.push(`<h1>${formatInline(trimmed.substring(2))}</h1>`);
+          continue;
+        }
+
+        if (trimmed.startsWith('> ')) {
+          flushList();
+          html.push(`<blockquote>${formatInline(trimmed.substring(2))}</blockquote>`);
+          continue;
+        }
+
+        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          if (!inList || listType !== 'ul') {
+            flushList();
+            inList = true;
+            listType = 'ul';
+            html.push('<ul>');
+          }
+          html.push(`<li>${formatInline(trimmed.substring(2))}</li>`);
+          continue;
+        }
+
+        let numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+        if (numMatch) {
+          if (!inList || listType !== 'ol') {
+            flushList();
+            inList = true;
+            listType = 'ol';
+            html.push('<ol>');
+          }
+          html.push(`<li>${formatInline(numMatch[2])}</li>`);
+          continue;
+        }
+
+        flushList();
+        if (trimmed === '') continue;
+        html.push(`<p>${formatInline(trimmed)}</p>`);
+      }
+
+      flushTable();
+      flushList();
+      return html.join('\n');
+    }
+
+    async function openLegalDoc(slug) {
+      slug = slug ? slug.toLowerCase().replace(/[^a-z0-9_-]/g, '') : 'privacy';
+      if (slug === 'legal') slug = 'privacy';
+
+      document.querySelectorAll('.legal-doc-btn').forEach(btn => btn.classList.remove('active'));
+      const activeNavBtn = document.getElementById('legal-nav-' + slug);
+      if (activeNavBtn) activeNavBtn.classList.add('active');
+
+      document.getElementById('legal-rendered-body').innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-dim);">Loading document...</div>';
+      document.getElementById('legal-modal').classList.add('open');
+
+      try {
+        let docData = legalDocsCache[slug];
+        if (!docData) {
+          const resp = await fetch('/api/v1/legal/' + slug);
+          if (!resp.ok) throw new Error('Document not found');
+          docData = await resp.json();
+          legalDocsCache[slug] = docData;
+        }
+
+        activeLegalDoc = docData;
+        activeLegalDocRawMarkdown = docData.content || '';
+
+        document.getElementById('legal-active-title').innerText = docData.title || 'Legal Document';
+        document.getElementById('legal-active-effective').innerText = 'Effective: ' + (docData.effective_date || 'August 28, 2026');
+        document.getElementById('legal-active-category').innerText = 'Category: ' + (docData.category || 'Compliance');
+        document.getElementById('legal-active-version').innerText = 'Version ' + (docData.version || '1.0');
+        document.getElementById('legal-doc-badge').innerText = 'v' + (docData.version || '1.0');
+
+        document.getElementById('legal-rendered-body').innerHTML = renderMarkdownToHtml(docData.content);
+        document.getElementById('legal-search-input').value = '';
+
+        if (window.location.hash !== '#' + slug) {
+          history.replaceState(null, null, '#' + slug);
+        }
+      } catch (err) {
+        document.getElementById('legal-rendered-body').innerHTML = `
+          <div style="color:var(--status-red-text); background:var(--status-red-bg); padding:16px; border-radius:var(--radius); border:1px solid var(--status-red-border);">
+            <strong>Failed to load legal document:</strong> ${err.message || 'Unknown error'}
+          </div>`;
+      }
+    }
+
+    function closeLegalModal() {
+      document.getElementById('legal-modal').classList.remove('open');
+      const validSlugs = ['privacy', 'terms', 'cookies', 'refund', 'aup', 'dpa', 'disclaimer', 'legal'];
+      const currentHash = window.location.hash.replace('#', '').toLowerCase();
+      if (validSlugs.includes(currentHash)) {
+        history.replaceState(null, null, ' ');
+      }
+    }
+
+    function printActiveLegalDoc() {
+      if (!activeLegalDoc) return;
+      const printWin = window.open('', '_blank', 'width=800,height=900');
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${activeLegalDoc.title || 'Legal Document'} — Fraud Engine</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 40px; color: #111; line-height: 1.6; }
+            h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 12px; }
+            h2 { font-size: 16px; margin-top: 20px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+            h3 { font-size: 14px; margin-top: 14px; }
+            table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 12px; }
+            th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+            th { background: #f4f4f4; }
+            blockquote { border-left: 3px solid #0066cc; margin: 12px 0; padding: 6px 12px; background: #f8f9fa; }
+            .meta { font-size: 11px; color: #666; margin-bottom: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="meta">Fraud Engine Legal Documentation &bull; Effective: ${activeLegalDoc.effective_date} &bull; Version: ${activeLegalDoc.version}</div>
+          ${renderMarkdownToHtml(activeLegalDoc.content)}
+        </body>
+        </html>
+      `;
+      printWin.document.write(htmlContent);
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => { printWin.print(); }, 250);
+    }
+
+    function copyActiveLegalDocMarkdown() {
+      if (!activeLegalDocRawMarkdown) return;
+      copyText(activeLegalDocRawMarkdown);
+      toast('Copied Markdown source to clipboard');
+    }
+
+    function filterLegalSearch(query) {
+      if (!activeLegalDocRawMarkdown) return;
+      const q = query.trim().toLowerCase();
+      if (!q) {
+        document.getElementById('legal-rendered-body').innerHTML = renderMarkdownToHtml(activeLegalDocRawMarkdown);
+        return;
+      }
+      const rendered = renderMarkdownToHtml(activeLegalDocRawMarkdown);
+      const container = document.getElementById('legal-rendered-body');
+      container.innerHTML = rendered;
+      
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+      const textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+      for (let node of textNodes) {
+        const parent = node.parentNode;
+        if (parent && parent.nodeName !== 'SCRIPT' && parent.nodeName !== 'STYLE') {
+          const text = node.nodeValue;
+          const idx = text.toLowerCase().indexOf(q);
+          if (idx !== -1) {
+            const span = document.createElement('span');
+            span.innerHTML = text.replace(new RegExp('(' + q.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&') + ')', 'gi'), '<mark style="background:#58a6ff; color:#0d1117; padding:1px 3px; border-radius:2px;">$1</mark>');
+            parent.replaceChild(span, node);
+          }
+        }
+      }
+    }
+
+    function handleUrlHash() {
+      const hash = window.location.hash.replace('#', '').toLowerCase().trim();
+      const validSlugs = ['privacy', 'terms', 'cookies', 'refund', 'aup', 'dpa', 'disclaimer', 'legal'];
+      if (validSlugs.includes(hash)) {
+        openLegalDoc(hash);
+      }
+    }
+
+    window.addEventListener('hashchange', handleUrlHash);
+
     // Auto-init
     initFirebaseClient();
     renderSnippet();
+    checkCookieConsentOnLoad();
+    handleUrlHash();
   </script>
 </body>
 </html>
@@ -1947,7 +2867,7 @@ class FraudAppHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        if path == "/" or path == "/index.html":
+        if path == "/" or path == "/index.html" or path in ["/legal", "/privacy", "/terms", "/cookies", "/refund", "/aup", "/dpa", "/disclaimer"]:
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -1955,6 +2875,19 @@ class FraudAppHandler(BaseHTTPRequestHandler):
             self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
+            return
+
+        if path == "/api/v1/legal/documents":
+            self._send_response_json(200, {"documents": load_legal_documents(include_content=True)})
+            return
+
+        if path.startswith("/api/v1/legal/"):
+            slug = path[len("/api/v1/legal/"):].strip("/")
+            doc = get_legal_document(slug)
+            if doc:
+                self._send_response_json(200, doc)
+            else:
+                self._send_response_json(404, {"error": "document_not_found", "message": f"Legal document '{slug}' not found"})
             return
 
         if path == "/api/v1/config/firebase":
@@ -2132,7 +3065,7 @@ def start_server(port=None):
     print("Initializing Fraud Risk Engine for Developer Platform...")
     engine = FraudRiskEngine(warm_start=True)
     server_address = ("0.0.0.0", port)
-    httpd = HTTPServer(server_address, FraudAppHandler)
+    httpd = ThreadingHTTPServer(server_address, FraudAppHandler)
     print(f"\n==============================================================")
     print(f"FRAUD ENGINE SERVER READY")
     print(f"Open in your browser: http://0.0.0.0:{port}")

@@ -305,5 +305,83 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertIn("retry_after_seconds", exceeded_resp.json()["detail"])
 
 
+class TestLegalComplianceAndFooter(unittest.TestCase):
+    """Tests for Single Source of Truth Legal Docs, API Endpoints, and Footer UI."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from api import app
+        from legal_loader import load_legal_documents, get_legal_document
+        cls.client = TestClient(app)
+        cls.load_legal_documents = staticmethod(load_legal_documents)
+        cls.get_legal_document = staticmethod(get_legal_document)
+
+    def test_canonical_legal_documents_exist_and_parse(self):
+        docs = self.load_legal_documents(include_content=True)
+        self.assertEqual(len(docs), 7, "Expected 7 canonical legal documents in /legal")
+
+        expected_slugs = ["privacy", "terms", "cookies", "refund", "aup", "dpa", "disclaimer"]
+        loaded_slugs = [d["slug"] for d in docs]
+        self.assertEqual(loaded_slugs, expected_slugs)
+
+        for doc in docs:
+            self.assertTrue(len(doc["title"]) > 0)
+            self.assertTrue(len(doc["version"]) > 0)
+            self.assertTrue(len(doc["effective_date"]) > 0)
+            self.assertTrue(len(doc["summary"]) > 0)
+            self.assertTrue(len(doc["content"]) > 100)
+
+    def test_get_individual_legal_document_and_aliases(self):
+        privacy_doc = self.get_legal_document("privacy")
+        self.assertIsNotNone(privacy_doc)
+        self.assertEqual(privacy_doc["slug"], "privacy")
+        self.assertEqual(privacy_doc["title"], "Privacy Policy")
+
+        # Test alias resolution
+        aliased = self.get_legal_document("privacy-policy")
+        self.assertIsNotNone(aliased)
+        self.assertEqual(aliased["slug"], "privacy")
+
+        # Test non-existent slug
+        missing = self.get_legal_document("nonexistent_policy")
+        self.assertIsNone(missing)
+
+    def test_fastapi_legal_endpoints(self):
+        # List all documents
+        resp = self.client.get("/api/v1/legal/documents")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("documents", data)
+        self.assertEqual(len(data["documents"]), 7)
+
+        # Fetch individual document
+        for slug in ["privacy", "terms", "cookies", "refund", "aup", "dpa", "disclaimer"]:
+            doc_resp = self.client.get(f"/api/v1/legal/{slug}")
+            self.assertEqual(doc_resp.status_code, 200)
+            doc_data = doc_resp.json()
+            self.assertEqual(doc_data["slug"], slug)
+            self.assertIn("content", doc_data)
+
+        # 404 on missing document
+        missing_resp = self.client.get("/api/v1/legal/fake_document_slug")
+        self.assertEqual(missing_resp.status_code, 404)
+
+    def test_legal_direct_page_routes(self):
+        for route in ["/legal", "/privacy", "/terms", "/cookies", "/refund", "/aup", "/dpa", "/disclaimer"]:
+            resp = self.client.get(route)
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("text/html", resp.headers.get("content-type", ""))
+
+    def test_html_page_footer_and_legal_center(self):
+        from app import HTML_PAGE
+        self.assertIn("site-footer", HTML_PAGE)
+        self.assertIn("karthik tatineni", HTML_PAGE)
+        self.assertIn("legal-modal", HTML_PAGE)
+        self.assertIn("cookie-consent-banner", HTML_PAGE)
+        self.assertIn("openLegalDoc", HTML_PAGE)
+        self.assertIn("hasAnalyticsConsent", HTML_PAGE)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

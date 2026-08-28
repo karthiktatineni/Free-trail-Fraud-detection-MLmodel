@@ -40,6 +40,7 @@ from database import (
     search_user_customer,
     push_initial_dataset_to_firebase
 )
+from legal_loader import load_legal_documents, get_legal_document
 
 # Global Engine instance
 engine: Optional[FraudRiskEngine] = None
@@ -277,6 +278,36 @@ async def add_process_time_header(request: Request, call_next):
 def get_dashboard():
     """Interactive Commercial Developer Portal & Fraud Risk Dashboard."""
     return HTMLResponse(content=HTML_PAGE)
+
+
+# Direct Legal Page Routes
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/cookies", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/refund", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/aup", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/dpa", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/disclaimer", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/legal", response_class=HTMLResponse, include_in_schema=False)
+def get_legal_page():
+    """Direct URL routes for legal policies."""
+    return HTMLResponse(content=HTML_PAGE)
+
+
+# ----------------- LEGAL & COMPLIANCE (SINGLE SOURCE OF TRUTH) -----------------
+@app.get("/api/v1/legal/documents", tags=["Legal & Compliance"])
+def list_legal_documents():
+    """Returns metadata and contents of all 7 canonical legal documents from /legal."""
+    return {"documents": load_legal_documents(include_content=True)}
+
+
+@app.get("/api/v1/legal/{slug}", tags=["Legal & Compliance"])
+def get_single_legal_document(slug: str):
+    """Retrieves a specific canonical legal document by slug."""
+    doc = get_legal_document(slug)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Legal document '{slug}' not found")
+    return doc
 
 
 @app.get("/api/v1/config/firebase", tags=["Configuration"])
