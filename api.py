@@ -1,13 +1,13 @@
 """
-PRODUCTION FASTAPI MICROSERVICE — Commercial Fraud Detection API
-==================================================================
-High-throughput REST API for Real-Time Fraud & Abuse Detection.
-Features:
-  - Synchronous real-time ML inference (<15ms)
-  - API Key Authentication (fk_live_... / fk_test_...)
-  - Sliding-Window Rate Limiting (with RFC standard headers & 429 response)
-  - Interactive Swagger UI & ReDoc documentation (/docs, /redoc)
-  - Built-in Developer Portal & Web GUI Dashboard (/)
+PRODUCTION FASTAPI MICROSERVICE — Multi-Tenant Commercial Fraud Platform
+=========================================================================
+Enterprise REST API providing:
+  - Multi-tenant user isolation & Firebase Auth integration
+  - Per-user API key management (fk_live_... / fk_test_...)
+  - Strict 30 requests/minute sliding-window rate limiting
+  - Automatic tenant customer persistence & duplicate search
+  - Continuous online model retraining trigger
+  - Interactive OpenAPI /docs & /redoc documentation
 """
 
 import os
@@ -17,54 +17,46 @@ import secrets
 from typing import List, Dict, Optional, Any, Tuple
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException, Request, Response, Header, Depends, status
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, Request, Response, Header, Depends, Query, status
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from predict import FraudRiskEngine, FEATURE_COLS
 from app import HTML_PAGE
+from database import (
+    get_or_create_user,
+    get_user_by_id,
+    create_user_api_key,
+    list_user_api_keys,
+    validate_api_key,
+    revoke_user_api_key,
+    record_customer_signup,
+    list_user_customers,
+    search_user_customer,
+    push_initial_dataset_to_firebase
+)
 
 # Global Engine instance
 engine: Optional[FraudRiskEngine] = None
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VISUALS_DIR = os.path.join(BASE_DIR, "visuals")
 
-# ----------------- IN-MEMORY API KEY & RATE LIMIT STORE -----------------
-# Supports both pre-seeded demo keys and dynamically generated user keys
-API_KEYS: Dict[str, Dict[str, Any]] = {
-    "fk_live_demo_9824ab71f2": {
-        "key_id": "key_demo_01",
-        "name": "Default Production Key",
-        "type": "live",
-        "created_at": "2026-01-01T00:00:00Z",
-        "rate_limit_per_min": 60,
-        "user_email": "developer@enterprise.io"
-    },
-    "fk_test_demo_5512cd39e4": {
-        "key_id": "key_demo_02",
-        "name": "Sandbox Test Key",
-        "type": "test",
-        "created_at": "2026-01-01T00:00:00Z",
-        "rate_limit_per_min": 120,
-        "user_email": "developer@enterprise.io"
-    }
-}
+DEFAULT_RATE_LIMIT = int(os.environ.get("DEFAULT_RATE_LIMIT_PER_MINUTE", 30))
 
 
 class SlidingWindowRateLimiter:
-    """Sliding-window rate limiter per API key / IP."""
-    def __init__(self, default_limit: int = 60):
+    """Sliding-window rate limiter per API key (30 requests/min)."""
+    def __init__(self, default_limit: int = 30):
         self.default_limit = default_limit
         self.history: Dict[str, List[float]] = defaultdict(list)
         self.lifetime_counts: Dict[str, int] = defaultdict(int)
 
     def check(self, key: str, limit: Optional[int] = None) -> Tuple[bool, int, int, int]:
-        """
-        Returns:
-            (allowed: bool, limit: int, remaining: int, reset_seconds: int)
-        """
         now = time.time()
         effective_limit = limit or self.default_limit
         cutoff = now - 60.0
@@ -89,7 +81,7 @@ class SlidingWindowRateLimiter:
         return len(self.history[key])
 
 
-rate_limiter = SlidingWindowRateLimiter(default_limit=60)
+rate_limiter = SlidingWindowRateLimiter(default_limit=DEFAULT_RATE_LIMIT)
 
 # Telemetry stats
 stats = {
@@ -111,30 +103,21 @@ def get_engine() -> FraudRiskEngine:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_engine()
-    print("[FastAPI] Fraud Detection ML Model ready for live inference.")
+    print("[FastAPI] Fraud Detection Multi-Tenant SAAS API Ready.")
     yield
-    print("[FastAPI] Shutting down FraudRiskEngine.")
+    print("[FastAPI] Shutting down.")
 
 
 app = FastAPI(
-    title="Fraud Detection ML Model - Commercial Risk Microservice",
+    title="Fraud Detection ML Model — Multi-Tenant Commercial API",
     description="""
-### Real-Time Anti-Abuse & Multi-Accounting Risk API
+### Enterprise Real-Time Fraud & Abuse Detection Platform
 
-The Fraud Detection API provides high-throughput (<15ms) risk scoring for SaaS signups, checkout flows, and trial onboarding.
-
-#### Authentication:
-Include your API key in every request via the `X-API-Key` header or `Authorization: Bearer <key>`.
-- **Live Key:** `fk_live_...` (Standard production rate limit: 60 req/min)
-- **Test Key:** `fk_test_...` (Sandbox rate limit: 120 req/min)
-
-#### Standard Rate Limiting Headers:
-All API responses return RFC-compliant rate limit headers:
-- `X-RateLimit-Limit`: Maximum requests permitted per minute.
-- `X-RateLimit-Remaining`: Requests remaining in the current 60s sliding window.
-- `X-RateLimit-Reset`: Time in seconds until the sliding window resets.
+- **Strict Rate Limiting:** 30 requests/minute per tenant API key.
+- **Tenant Customer Isolation:** All customer events are stored privately under the authenticated tenant's database.
+- **Authentication:** Provide your key in the `X-API-Key` header (`fk_live_...` or `fk_test_...`).
     """,
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"
@@ -150,53 +133,37 @@ app.add_middleware(
 
 
 # ----------------- AUTH & RATE LIMIT DEPENDENCY -----------------
-async def verify_api_key_and_rate_limit(
+async def authenticate_and_rate_limit(
     request: Request,
     response: Response,
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None)
-):
+) -> Dict[str, Any]:
     """
-    Validates API key (from X-API-Key or Bearer Token) and enforces
-    per-key sliding-window rate limiting.
+    Validates tenant API key and strictly enforces the 30 req/min sliding-window rate limit.
     """
     api_key = x_api_key
     if not api_key and authorization and authorization.startswith("Bearer "):
         api_key = authorization.split("Bearer ")[1].strip()
 
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "missing_api_key", "message": "Authentication required. Pass X-API-Key header with your fk_live_... key."}
+        )
 
-    # Identify user / key tier
-    if api_key and api_key in API_KEYS:
-        key_meta = API_KEYS[api_key]
-        rate_key = api_key
-        limit = key_meta.get("rate_limit_per_min", 60)
-    elif api_key:
-        # Dynamic key format validation
-        if api_key.startswith("fk_live_") or api_key.startswith("fk_test_"):
-            rate_key = api_key
-            limit = 60
-            API_KEYS[api_key] = {
-                "key_id": f"key_{secrets.token_hex(4)}",
-                "name": "Custom Dynamic Key",
-                "type": "live" if api_key.startswith("fk_live_") else "test",
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "rate_limit_per_min": 60,
-                "user_email": "authenticated_user@domain.com"
-            }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"error": "invalid_api_key", "message": "Invalid API key format. Must start with fk_live_ or fk_test_."}
-            )
-    else:
-        # Anonymous / Demo IP tier (30 req/min)
-        rate_key = f"ip_{client_ip}"
-        limit = 30
+    # Validate against database
+    key_record = validate_api_key(api_key)
+    if not key_record:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "invalid_api_key", "message": "API key not recognized or revoked. Please sign in to generate a valid key."}
+        )
 
-    allowed, effective_limit, remaining, reset_in = rate_limiter.check(rate_key, limit=limit)
+    limit = key_record.get("rate_limit_per_min", DEFAULT_RATE_LIMIT)
+    allowed, effective_limit, remaining, reset_in = rate_limiter.check(api_key, limit=limit)
 
-    # Attach standard RFC rate limit headers
+    # Standard RFC rate limit response headers
     response.headers["X-RateLimit-Limit"] = str(effective_limit)
     response.headers["X-RateLimit-Remaining"] = str(remaining)
     response.headers["X-RateLimit-Reset"] = str(reset_in)
@@ -206,7 +173,7 @@ async def verify_api_key_and_rate_limit(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
                 "error": "rate_limit_exceeded",
-                "message": f"Rate limit of {effective_limit} requests/minute exceeded for this key.",
+                "message": f"Rate limit of {effective_limit} requests/minute exceeded for your API key.",
                 "retry_after_seconds": reset_in
             },
             headers={
@@ -217,10 +184,16 @@ async def verify_api_key_and_rate_limit(
             }
         )
 
-    return rate_key
+    return key_record
 
 
 # ----------------- PYDANTIC SCHEMAS -----------------
+class UserSessionRequest(BaseModel):
+    uid: str
+    email: str
+    display_name: Optional[str] = None
+
+
 class SignupEventRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="Unique account identifier (auto-generated if omitted)")
     name: str = Field(..., description="Full user name", json_schema_extra={"example": "David Smith"})
@@ -235,17 +208,18 @@ class SignupEventRequest(BaseModel):
 
 
 class RiskScoreResponse(BaseModel):
+    customer_id: Optional[str] = None
     user_id: Optional[str] = None
-    risk_score: float = Field(..., description="Calibrated risk score between 0.0 (Clean) and 100.0 (Abuse)")
-    verdict: str = Field(..., description="Decision verdict: NEW USER (GENUINE), SUSPICIOUS (STEP-UP), or REPEATING USER (LIKELY ABUSE)")
-    recommended_action: str = Field(..., description="Downstream policy action: ALLOW, STEP-UP, or BLOCK")
-    severity: Optional[str] = Field(None, description="Severity category: low, medium, or high")
-    model_confidence_pct: float = Field(..., description="Model certainty percentage")
-    model_probability: Optional[float] = Field(None, description="Raw probability from predict_proba()")
-    decision_threshold: float = Field(..., description="Current operating decision threshold")
-    latency_ms: float = Field(..., description="Inference latency in milliseconds")
-    signal_breakdown: Dict[str, float] = Field(..., description="Additive signal weights for explainability")
-    raw_features: Dict[str, Any] = Field(..., description="Full 20-dimensional causal feature vector")
+    risk_score: float
+    verdict: str
+    recommended_action: str
+    severity: Optional[str] = None
+    model_confidence_pct: float
+    model_probability: Optional[float] = None
+    decision_threshold: float
+    latency_ms: float
+    signal_breakdown: Dict[str, float]
+    raw_features: Dict[str, Any]
 
 
 class BatchPredictionRequest(BaseModel):
@@ -260,18 +234,9 @@ class BatchPredictionResponse(BaseModel):
 
 
 class CreateApiKeyRequest(BaseModel):
-    name: str = Field("Production API Key", description="Human-readable label for the key")
-    key_type: str = Field("live", description="Key type: 'live' (production) or 'test' (sandbox)")
-    user_email: Optional[str] = Field("developer@enterprise.io", description="Associated developer email")
-
-
-class CreateApiKeyResponse(BaseModel):
-    api_key: str
-    key_id: str
-    name: str
-    key_type: str
-    rate_limit_per_min: int
-    created_at: str
+    user_id: str
+    name: str = "Production API Key"
+    key_type: str = "live"
 
 
 # ----------------- MIDDLEWARE -----------------
@@ -284,11 +249,26 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 
-# ----------------- WEB GUI & ROOT ROUTES -----------------
+# ----------------- WEB GUI & CONFIG ENDPOINTS -----------------
 @app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
 def get_dashboard():
-    """Interactive Developer Portal & Fraud Risk Dashboard."""
+    """Interactive Commercial Developer Portal & Fraud Risk Dashboard."""
     return HTMLResponse(content=HTML_PAGE)
+
+
+@app.get("/api/v1/config/firebase", tags=["Configuration"])
+def get_firebase_client_config():
+    """Dynamically serves Firebase configuration from .env (No hardcoding)."""
+    return {
+        "apiKey": os.environ.get("FIREBASE_API_KEY", ""),
+        "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN", ""),
+        "projectId": os.environ.get("FIREBASE_PROJECT_ID", ""),
+        "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET", ""),
+        "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID", ""),
+        "appId": os.environ.get("FIREBASE_APP_ID", ""),
+        "databaseURL": os.environ.get("FIREBASE_DATABASE_URL", ""),
+        "defaultRateLimit": DEFAULT_RATE_LIMIT
+    }
 
 
 @app.get("/visuals/{file_path:path}", tags=["Dashboard"])
@@ -300,162 +280,81 @@ def get_visual_asset(file_path: str):
     raise HTTPException(status_code=404, detail="Visual asset not found")
 
 
-@app.post("/api/score", tags=["Dashboard"])
-def web_score(event: Dict[str, Any]):
-    """Frontend endpoint for web dashboard playground."""
-    eng = get_engine()
-    return eng.score_event(event, update_state=True)
-
-
-@app.post("/api/score-batch", tags=["Dashboard"])
-def web_score_batch(rows: List[Dict[str, Any]]):
-    """Frontend batch endpoint for web dashboard."""
-    eng = get_engine()
-    results = []
-    for row in rows:
-        res = eng.score_event(row, update_state=True)
-        results.append({
-            "user_id": res["user_id"],
-            "name": row.get("name", res["user_id"]),
-            "email": row.get("email", ""),
-            "risk_score": res["risk_score"],
-            "verdict": res["verdict"],
-            "recommended_action": res["recommended_action"],
-            "severity": res["severity"],
-            "confidence": res["model_confidence_pct"],
-            "top_signal": list(res["signal_breakdown"].keys())[0] if res["signal_breakdown"] else "",
-        })
-    return results
-
-
-# ----------------- API KEY MANAGEMENT ENDPOINTS -----------------
-@app.post(
-    "/api/v1/keys/create",
-    response_model=CreateApiKeyResponse,
-    tags=["API Key Management"],
-    summary="Create a new API Key"
-)
-def create_api_key(req: CreateApiKeyRequest):
-    """Generates a new secure live (fk_live_...) or test (fk_test_...) API key."""
-    prefix = "fk_live_" if req.key_type == "live" else "fk_test_"
-    random_part = secrets.token_hex(16)
-    new_key = f"{prefix}{random_part}"
-    key_id = f"key_{secrets.token_hex(4)}"
-    limit = 60 if req.key_type == "live" else 120
-    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    API_KEYS[new_key] = {
-        "key_id": key_id,
-        "name": req.name,
-        "type": req.key_type,
-        "created_at": now_iso,
-        "rate_limit_per_min": limit,
-        "user_email": req.user_email
+# ----------------- USER AUTH & TENANT SESSION -----------------
+@app.post("/api/v1/auth/session", tags=["Authentication"])
+def create_or_login_user(req: UserSessionRequest):
+    """Syncs authenticated user from Firebase Auth into database and returns active profile."""
+    user = get_or_create_user(uid=req.uid, email=req.email, display_name=req.display_name)
+    keys = list_user_api_keys(req.uid)
+    return {
+        "user": user,
+        "keys": keys,
+        "rate_limit_per_min": DEFAULT_RATE_LIMIT
     }
 
-    return CreateApiKeyResponse(
-        api_key=new_key,
-        key_id=key_id,
+
+# ----------------- API KEY MANAGEMENT -----------------
+@app.post("/api/v1/keys/create", tags=["API Key Management"])
+def generate_api_key(req: CreateApiKeyRequest):
+    """Generates a new unique API key tied strictly to the authenticated tenant."""
+    key_record = create_user_api_key(
+        user_id=req.user_id,
         name=req.name,
         key_type=req.key_type,
-        rate_limit_per_min=limit,
-        created_at=now_iso
+        rate_limit_per_min=DEFAULT_RATE_LIMIT
     )
+    return key_record
 
 
-@app.get(
-    "/api/v1/keys/list",
-    tags=["API Key Management"],
-    summary="List Active API Keys"
-)
-def list_api_keys():
-    """Retrieves all registered active API keys."""
-    keys_list = []
-    for key_str, meta in API_KEYS.items():
-        masked = f"{key_str[:12]}...{key_str[-4:]}"
-        keys_list.append({
-            "key_id": meta["key_id"],
-            "name": meta["name"],
-            "type": meta["type"],
-            "masked_key": masked,
-            "raw_key": key_str,
-            "rate_limit_per_min": meta["rate_limit_per_min"],
-            "created_at": meta["created_at"],
-            "requests_this_minute": rate_limiter.get_current_window_count(key_str)
-        })
-    return {"keys": keys_list}
+@app.get("/api/v1/keys/list", tags=["API Key Management"])
+def list_api_keys(user_id: str = Query(...)):
+    """Retrieves all active API keys belonging strictly to the specified user."""
+    keys = list_user_api_keys(user_id)
+    for k in keys:
+        k["requests_this_minute"] = rate_limiter.get_current_window_count(k.get("key_hash", ""))
+    return {"keys": keys}
 
 
-@app.delete(
-    "/api/v1/keys/{key_id}",
-    tags=["API Key Management"],
-    summary="Revoke an API Key"
-)
-def revoke_api_key(key_id: str):
-    """Revokes and deletes an API key."""
-    to_delete = None
-    for k, meta in API_KEYS.items():
-        if meta["key_id"] == key_id:
-            to_delete = k
-            break
-    if to_delete:
-        del API_KEYS[to_delete]
-        return {"status": "success", "message": f"API key {key_id} revoked."}
-    raise HTTPException(status_code=404, detail="API key not found")
+@app.delete("/api/v1/keys/{key_id}", tags=["API Key Management"])
+def revoke_key(key_id: str, user_id: str = Query(...)):
+    """Revokes an API key belonging to a tenant."""
+    success = revoke_user_api_key(user_id=user_id, key_id=key_id)
+    if success:
+        return {"status": "success", "message": "Key revoked."}
+    raise HTTPException(status_code=404, detail="Key not found or unauthorized.")
 
 
-@app.get(
-    "/api/v1/keys/usage",
-    tags=["API Key Management"],
-    summary="Get Real-Time Usage & Quota Stats"
-)
-def get_usage_stats(rate_key: str = Depends(verify_api_key_and_rate_limit)):
-    """Returns current rate limit quota and requests consumed in the sliding window."""
-    current_count = rate_limiter.get_current_window_count(rate_key)
-    limit = API_KEYS.get(rate_key, {}).get("rate_limit_per_min", 60)
-    return {
-        "rate_key": rate_key[:12] + "..." if len(rate_key) > 16 else rate_key,
-        "requests_current_minute": current_count,
-        "limit_per_minute": limit,
-        "remaining_requests": max(0, limit - current_count),
-        "total_requests_all_time": stats["total_requests"]
-    }
+# ----------------- MULTI-TENANT CUSTOMERS -----------------
+@app.get("/api/v1/customers/list", tags=["Tenant Customer Database"])
+def list_tenant_customers(user_id: str = Query(...), limit: int = 50):
+    """Lists customer signup events scored under this user's account."""
+    customers = list_user_customers(user_id=user_id, limit=limit)
+    return {"customers": customers, "count": len(customers)}
 
 
-# ----------------- OPERATIONAL MONITORING -----------------
-@app.get("/healthz", tags=["Monitoring"], summary="Health & Readiness Probe")
-def health_check():
-    """Kubernetes / Cloud load-balancer readiness probe."""
-    eng = get_engine()
-    return {
-        "status": "healthy",
-        "service": "Fraud Detection ML Model Risk Engine",
-        "model_loaded": eng.pipeline is not None,
-        "feature_count": len(FEATURE_COLS),
-        "uptime_status": "operational"
-    }
+@app.get("/api/v1/customers/search", tags=["Tenant Customer Database"])
+def search_tenant_customer(user_id: str = Query(...), q: str = Query(...)):
+    """Searches if a customer exists under this user's account by email, IP, name, or payment token."""
+    return search_user_customer(user_id=user_id, query=q)
 
 
-@app.get("/metrics", tags=["Monitoring"], summary="Operational Telemetry")
-def get_metrics():
-    """Returns cumulative request volume, verdict distribution, and average latency."""
-    avg_lat = stats["total_latency_ms"] / max(1, stats["total_requests"])
-    return {
-        "total_requests_processed": stats["total_requests"],
-        "verdict_distribution": stats["verdicts"],
-        "average_inference_latency_ms": round(avg_lat, 2),
-        "feature_count": len(FEATURE_COLS)
-    }
+# ----------------- CONTINUOUS LEARNING & DATASET SYNC -----------------
+@app.post("/api/v1/model/retrain", tags=["Continuous Learning"])
+def trigger_continuous_retraining():
+    """Runs continuous learning model retraining on cumulative production customer data."""
+    from scripts.continuous_retraining import run_continuous_training
+    report = run_continuous_training()
+    # Reload engine pipeline
+    global engine
+    engine = None
+    get_engine()
+    return report
 
 
-@app.get("/api/v1/drift", tags=["Monitoring"], summary="Population Stability Index Drift Report")
-def get_drift_status():
-    """Retrieves the latest PSI and Covariate Shift audit report."""
-    drift_file = os.path.join(os.path.dirname(__file__), "results", "drift_analysis.json")
-    if os.path.exists(drift_file):
-        with open(drift_file, "r") as f:
-            return json.load(f)
-    return {"status": "No drift audit found. Run scripts/07_drift_monitor.py first."}
+@app.post("/api/v1/firebase/sync-dataset", tags=["Continuous Learning"])
+def sync_dataset_to_firebase(batch_limit: int = 200):
+    """Pushes historical raw dataset to Firebase Firestore."""
+    return push_initial_dataset_to_firebase(batch_limit=batch_limit)
 
 
 # ----------------- CORE INFERENCE ENDPOINTS -----------------
@@ -463,16 +362,16 @@ def get_drift_status():
     "/api/v1/score",
     response_model=RiskScoreResponse,
     tags=["Inference"],
-    summary="Real-Time Single Event Risk Scoring"
+    summary="Real-Time Single Event Risk Scoring (Strict 30 req/min)"
 )
 def score_signup(
     event: SignupEventRequest,
-    rate_key: str = Depends(verify_api_key_and_rate_limit)
+    auth_key: Dict[str, Any] = Depends(authenticate_and_rate_limit)
 ):
     """
-    Scores a single signup event synchronously in real time (<15ms).
-    Extracts 20 causal features, evaluates ML model predict_proba(),
-    and maps output to an actionable 3-band risk policy.
+    Scores a single signup event in <15ms.
+    Strictly rate limited to 30 requests/minute.
+    Automatically records the customer under the caller's tenant account.
     """
     start_t = time.perf_counter()
     eng = get_engine()
@@ -482,6 +381,11 @@ def score_signup(
 
     lat_ms = (time.perf_counter() - start_t) * 1000.0
     result["latency_ms"] = round(lat_ms, 2)
+
+    # Persist customer under authenticated user account
+    tenant_uid = auth_key["user_id"]
+    cust_id = record_customer_signup(user_id=tenant_uid, event_data=raw_event, score_result=result)
+    result["customer_id"] = cust_id
 
     # Update telemetry stats
     stats["total_requests"] += 1
@@ -496,23 +400,27 @@ def score_signup(
     "/api/v1/batch",
     response_model=BatchPredictionResponse,
     tags=["Inference"],
-    summary="Batch Event Risk Scoring"
+    summary="Batch Event Risk Scoring (Strict 30 req/min)"
 )
 def score_batch(
     batch: BatchPredictionRequest,
-    rate_key: str = Depends(verify_api_key_and_rate_limit)
+    auth_key: Dict[str, Any] = Depends(authenticate_and_rate_limit)
 ):
-    """Scores a batch of signup events in a single API call."""
+    """Scores a batch of signup events under the caller's tenant account."""
     start_t = time.perf_counter()
     eng = get_engine()
+    tenant_uid = auth_key["user_id"]
 
     results = []
     verdict_counts: Dict[str, int] = defaultdict(int)
 
     for item in batch.events:
         item_start = time.perf_counter()
-        res = eng.score_event(item.model_dump(), update_state=True)
+        raw_event = item.model_dump()
+        res = eng.score_event(raw_event, update_state=True)
         res["latency_ms"] = round((time.perf_counter() - item_start) * 1000.0, 2)
+        cust_id = record_customer_signup(user_id=tenant_uid, event_data=raw_event, score_result=res)
+        res["customer_id"] = cust_id
         results.append(res)
         verdict_counts[res["verdict"]] += 1
         stats["total_requests"] += 1
@@ -530,8 +438,42 @@ def score_batch(
     }
 
 
+# ----------------- OPERATIONAL MONITORING -----------------
+@app.get("/healthz", tags=["Monitoring"])
+def health_check():
+    eng = get_engine()
+    return {
+        "status": "healthy",
+        "service": "Fraud Detection ML Model SAAS Microservice",
+        "model_loaded": eng.pipeline is not None,
+        "feature_count": len(FEATURE_COLS),
+        "rate_limit_per_min": DEFAULT_RATE_LIMIT,
+        "uptime_status": "operational"
+    }
+
+
+@app.get("/metrics", tags=["Monitoring"])
+def get_metrics():
+    avg_lat = stats["total_latency_ms"] / max(1, stats["total_requests"])
+    return {
+        "total_requests_processed": stats["total_requests"],
+        "verdict_distribution": stats["verdicts"],
+        "average_inference_latency_ms": round(avg_lat, 2),
+        "feature_count": len(FEATURE_COLS)
+    }
+
+
+@app.get("/api/v1/drift", tags=["Monitoring"])
+def get_drift_status():
+    drift_file = os.path.join(os.path.dirname(__file__), "results", "drift_analysis.json")
+    if os.path.exists(drift_file):
+        with open(drift_file, "r") as f:
+            return json.load(f)
+    return {"status": "No drift audit found. Run scripts/07_drift_monitor.py first."}
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    print(f"Starting Fraud Detection ML Model Production Microservice on http://0.0.0.0:{port} ...")
+    print(f"Starting Fraud Detection SAAS Microservice on http://0.0.0.0:{port} ...")
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)

@@ -335,17 +335,23 @@ py -m pytest tests/test_suite.py -v
 
 ---
 
-## 11. Production Deployment & REST API
+## 11. Production Deployment & Developer Platform
 
-### A. Real-Time CLI Scoring
+### Live Production API
+- **Live Render Base URL:** `https://free-trail-fraud-detection-mlmodel.onrender.com`
+- **Inference Endpoint:** `POST /api/v1/score`
+- **Rate Limit:** 30 requests/minute per tenant key (Sliding 60-second window)
+
+---
+
+### A. Launch Developer Platform & Dashboard Locally
 ```bash
-py predict.py --name "David Smith" \
-              --email "david.smith@gmail.com" \
-              --ip "203.0.113.45" \
-              --device "dev_macbook_pro_99" \
-              --payment "pm_barclays_card_99" \
-              --area "london"
+py app.py
 ```
+- **Dashboard:** `http://localhost:8000`
+- **Features:** Real-time inference playground, tenant API key management (up to 3 keys per verified user), customer directory with instant search, multi-language code snippets, and live model telemetry.
+
+---
 
 ### B. Launch FastAPI Production Microservice
 ```bash
@@ -355,19 +361,113 @@ py api.py
 - Health Check Probe: `http://localhost:8000/healthz`
 - Real-Time Scoring: `POST /api/v1/score`
 
-### C. Launch Docker Compose (FastAPI + Redis)
+---
+
+### C. Multi-Language Integration Snippets
+
+#### 1. cURL
 ```bash
-docker-compose up --build -d
+curl -X POST https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY_HERE" \
+  -d '{
+    "name": "Sarah Miller",
+    "email": "sarah.miller@gmail.com",
+    "ip_address": "198.51.100.24",
+    "device_id": "dev_macbook_pro_m2_99",
+    "payment_token": "pm_visa_auth_8821",
+    "area": "new york"
+  }'
 ```
 
-### D. Continuous Drift Monitoring & Active Learning
-```bash
-# Population Stability Index (PSI) Drift Audit:
-py scripts/07_drift_monitor.py
+#### 2. Python (Requests)
+```python
+import requests
 
-# Multi-Round Human-in-the-Loop Feedback:
-py scripts/08_active_learning_feedback.py
+url = "https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score"
+headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": "YOUR_API_KEY_HERE"
+}
+payload = {
+    "name": "Sarah Miller",
+    "email": "sarah.miller@gmail.com",
+    "ip_address": "198.51.100.24",
+    "device_id": "dev_macbook_pro_m2_99",
+    "payment_token": "pm_visa_auth_8821",
+    "area": "new york"
+}
+
+response = requests.post(url, json=payload, headers=headers)
+decision = response.json()
+print(f"Verdict: {decision['verdict']} | Score: {decision['risk_score']}")
 ```
+
+#### 3. Python SDK (`client.py`)
+```python
+from client import FraudDetectionClient
+
+client = FraudDetectionClient(
+    base_url="https://free-trail-fraud-detection-mlmodel.onrender.com",
+    api_key="YOUR_API_KEY_HERE"
+)
+
+decision = client.score_signup(
+    name="Sarah Miller",
+    email="sarah.miller@gmail.com",
+    ip_address="198.51.100.24",
+    device_id="dev_macbook_pro_m2_99",
+    payment_token="pm_visa_auth_8821",
+    area="new york"
+)
+
+if decision.is_fraudulent:
+    raise PermissionError("Trial limit reached on this device or network.")
+```
+
+#### 4. Node.js (Express Middleware)
+```javascript
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.post('/api/signup', async (req, res) => {
+  const fraudCheck = await fetch("https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": process.env.FRAUD_API_KEY
+    },
+    body: JSON.stringify({
+      name: req.body.name,
+      email: req.body.email,
+      ip_address: req.ip,
+      device_id: req.body.device_id,
+      payment_token: req.body.payment_token,
+      area: req.body.area || "london"
+    })
+  }).then(r => r.json());
+
+  if (fraudCheck.verdict === "REPEATING USER (LIKELY ABUSE)") {
+    return res.status(403).json({ error: "Trial limit exceeded." });
+  }
+
+  return res.json({ status: "TRIAL_ACTIVATED" });
+});
+```
+
+---
+
+### D. Multi-Tenant Architecture & Cloud Firestore Sync
+
+1. **Authentication:** Pure Firebase Auth (Email/Password with auto-verified link polling and Google OAuth).
+2. **Quota & Keys:** Strictly 3 API keys per verified developer account. Unverified accounts cannot generate keys.
+3. **Cryptographic Protection:** API keys stored using SHA-256 encrypted hashes. Zero plaintext storage.
+4. **Firestore Collections:**
+   - `users/{uid}`: Tenant profiles and verification metadata.
+   - `users/{uid}/api_keys/{keyId}`: Encrypted API key records.
+   - `users/{uid}/customers/{customerId}`: Scored registration events and signal explainability breakdown.
+   - `users/{uid}/login_history/{loginId}`: User audit log with timestamps and user-agent data.
 
 ---
 

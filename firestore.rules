@@ -1,0 +1,49 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for authentication & tenant isolation
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return isAuthenticated() && request.auth.token.email_verified == true;
+    }
+
+    // 1. User Profile Collection: strictly isolated per UID
+    match /users/{userId} {
+      // Users can only read and write their own document
+      allow read, write: if isOwner(userId);
+
+      // 2. Tenant Subcollection: api_keys
+      // Keys can only be created by verified account owners; read/delete by owner
+      match /api_keys/{keyId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isEmailVerified();
+      }
+
+      // 3. Tenant Subcollection: customers (Scored registration events)
+      // Strictly isolated per tenant UID
+      match /customers/{customerId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // 4. Tenant Subcollection: login_history (Audit logs)
+      match /login_history/{loginId} {
+        allow read, create: if isOwner(userId);
+        allow update, delete: if false; // Immutable audit log
+      }
+    }
+
+    // Explicitly deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

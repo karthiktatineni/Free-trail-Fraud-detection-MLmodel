@@ -8,7 +8,10 @@ Usage:
     from client import FraudDetectionClient
 
     # Initialize with your API Key
-    client = FraudDetectionClient(base_url="http://localhost:8000", api_key="fk_live_demo_9824ab71f2")
+    client = FraudDetectionClient(
+        base_url="https://free-trail-fraud-detection-mlmodel.onrender.com",
+        api_key="<YOUR_API_KEY>"
+    )
     
     # 1. Single Event Real-Time Scoring:
     res = client.score_signup(

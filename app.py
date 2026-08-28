@@ -1,13 +1,7 @@
 """
-COMMERCIAL DEVELOPER PLATFORM & FRAUD DETECTION WEB GUI
-=========================================================
-A full-stack, enterprise-grade developer platform featuring:
-  - Firebase Authentication (Email/Password & Google OAuth)
-  - API Key Management & Real-Time Sliding-Window Quota Monitor
-  - Live Interactive Risk Assessment Playground with 4 Attack Scenarios
-  - Dynamic Multi-Language Code Snippet Generator (cURL, Python, JS, Node, Go)
-  - Comprehensive In-App API Reference & A-to-Z Integration Guide
-  - Model Architecture & 10-Fold CV Evaluation Gallery
+FRAUD ENGINE — DEVELOPER API & FRAUD EVALUATION PLATFORM
+========================================================
+Production backend server & high-density developer dashboard.
 """
 
 import os
@@ -17,13 +11,27 @@ import secrets
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Dict, Any, List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from predict import FraudRiskEngine, FEATURE_COLS
+from database import (
+    get_or_create_user,
+    create_user_api_key,
+    list_user_api_keys,
+    revoke_user_api_key,
+    delete_user_api_key,
+    validate_api_key,
+    record_customer_signup,
+    list_user_customers,
+    search_user_customer,
+    push_initial_dataset_to_firebase
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VISUALS_DIR = os.path.join(BASE_DIR, "visuals")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
-RESULTS_DIR = os.path.join(BASE_DIR, "results")
+DEFAULT_RATE_LIMIT = int(os.environ.get("DEFAULT_RATE_LIMIT_PER_MINUTE", 30))
 
 engine = None
 
@@ -32,452 +40,697 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fraud Detection ML Model — Commercial Developer Platform</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <title>Fraud Engine - Identity & Risk Evaluation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
-  <!-- Firebase App & Auth SDKs -->
+  <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <style>
     :root {
-      --bg-dark: #070a12;
-      --bg-card: rgba(15, 23, 42, 0.80);
-      --bg-card-hover: rgba(30, 41, 59, 0.90);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --border-focus: #3b82f6;
-      --accent-blue: #3b82f6;
-      --accent-cyan: #06b6d4;
-      --accent-purple: #8b5cf6;
-      --risk-low: #10b981;
-      --risk-med: #f59e0b;
-      --risk-high: #ef4444;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --font-mono: 'JetBrains Mono', monospace;
+      --bg-page: #0d1117;
+      --bg-card: #161b22;
+      --bg-card-header: #1c2128;
+      --bg-input: #0d1117;
+      
+      --border-default: #30363d;
+      --border-muted: #21262d;
+      --border-focus: #58a6ff;
+
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --text-dim: #6e7681;
+
+      --accent-blue: #1f6feb;
+      --accent-blue-hover: #388bfd;
+      --accent-green: #238636;
+      --accent-green-hover: #2ea043;
+      --accent-red: #da3633;
+      --accent-red-hover: #f85149;
+
+      --status-green-bg: rgba(46, 160, 67, 0.15);
+      --status-green-border: rgba(46, 160, 67, 0.4);
+      --status-green-text: #3fb950;
+
+      --status-amber-bg: rgba(210, 153, 34, 0.15);
+      --status-amber-border: rgba(210, 153, 34, 0.4);
+      --status-amber-text: #d29922;
+
+      --status-red-bg: rgba(248, 81, 73, 0.15);
+      --status-red-border: rgba(248, 81, 73, 0.4);
+      --status-red-text: #f85149;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', Consolas, monospace;
+      
+      --radius: 6px;
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Inter', -apple-system, sans-serif;
-      background: radial-gradient(circle at 10% 10%, #0f172a 0%, var(--bg-dark) 55%), #05070e;
+      font-family: var(--font-sans);
+      background-color: var(--bg-page);
       color: var(--text-main);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      font-size: 13px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
     }
+
+    /* TOP BAR */
     header {
-      background: rgba(10, 15, 30, 0.88);
-      backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--card-border);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      padding: 0 28px;
-      height: 64px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-default);
+      height: 52px;
+      padding: 0 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
-    .brand-wrap { display: flex; align-items: center; gap: 14px; }
-    .brand-logo {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-      border-radius: 10px;
+
+    .nav-left { display: flex; align-items: center; gap: 20px; }
+    .brand-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      box-shadow: 0 0 16px rgba(59, 130, 246, 0.4);
+      gap: 8px;
+      text-decoration: none;
     }
-    .brand-name { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-    .brand-tag { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600; }
-    
-    nav { display: flex; gap: 6px; }
+    .brand-badge {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: var(--status-green-bg);
+      border: 1px solid var(--status-green-border);
+      color: var(--status-green-text);
+      font-weight: 500;
+    }
+
+    nav { display: flex; align-items: center; gap: 4px; }
     .nav-tab {
       background: transparent;
       border: none;
       color: var(--text-muted);
       font-size: 13px;
-      font-weight: 600;
-      padding: 8px 14px;
-      border-radius: 8px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: var(--radius);
       cursor: pointer;
-      transition: all 0.15s ease;
+      font-family: inherit;
+      transition: color 0.1s ease;
     }
-    .nav-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
-    .nav-tab.active { color: #fff; background: rgba(59, 130, 246, 0.18); border: 1px solid rgba(59, 130, 246, 0.35); }
+    .nav-tab:hover { color: var(--text-main); }
+    .nav-tab.active {
+      color: var(--text-main);
+      background: var(--border-muted);
+      font-weight: 600;
+    }
 
-    .user-auth-wrap { display: flex; align-items: center; gap: 12px; }
-    .auth-btn {
-      background: linear-gradient(135deg, #3b82f6, #2563eb);
-      color: #fff;
-      border: none;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 8px 16px;
-      border-radius: 8px;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-      transition: transform 0.1s ease;
-    }
-    .auth-btn:hover { transform: translateY(-1px); }
-    .user-pill {
-      display: flex;
+    .nav-right { display: flex; align-items: center; gap: 10px; }
+    
+    .user-profile-badge {
+      display: inline-flex;
       align-items: center;
-      gap: 10px;
-      background: rgba(30, 41, 59, 0.7);
-      padding: 4px 12px 4px 6px;
-      border-radius: 20px;
-      border: 1px solid var(--card-border);
+      gap: 8px;
+      background: var(--bg-card-header);
+      border: 1px solid var(--border-default);
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      font-size: 12px;
     }
-    .user-avatar { width: 26px; height: 26px; border-radius: 50%; background: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
-    .user-email { font-size: 12px; color: var(--text-main); font-weight: 500; }
-    .logout-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; margin-left: 6px; }
-    .logout-btn:hover { color: #ef4444; }
+    .user-email-text {
+      color: var(--text-main);
+      font-weight: 500;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+    .verified-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--status-green-bg);
+      border: 1px solid var(--status-green-border);
+      color: var(--status-green-text);
+      display: inline-block;
+    }
+    .unverified-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--status-amber-bg);
+      border: 1px solid var(--status-amber-border);
+      color: var(--status-amber-text);
+      cursor: pointer;
+      display: inline-block;
+    }
+    .btn-signout {
+      background: var(--bg-card-header);
+      border: 1px solid var(--border-default);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.1s ease;
+    }
+    .btn-signout:hover {
+      color: var(--status-red-text);
+      border-color: var(--status-red-border);
+      background: var(--status-red-bg);
+    }
 
-    main { flex: 1; padding: 24px 28px; max-width: 1440px; margin: 0 auto; width: 100%; }
-    .tab-pane { display: none; }
-    .tab-pane.active { display: block; animation: fadeIn 0.2s ease-in-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    /* BUTTONS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 12px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.1s ease, border-color 0.1s ease;
+    }
+    .btn-primary {
+      background: var(--accent-green);
+      border-color: rgba(240, 246, 252, 0.1);
+      color: #ffffff;
+    }
+    .btn-primary:hover { background: var(--accent-green-hover); }
 
-    /* GRID LAYOUTS */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .btn-blue {
+      background: var(--accent-blue);
+      border-color: rgba(240, 246, 252, 0.1);
+      color: #ffffff;
+    }
+    .btn-blue:hover { background: var(--accent-blue-hover); }
 
-    /* CARD STYLES */
+    .btn-secondary {
+      background: var(--bg-card-header);
+      border-color: var(--border-default);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover { background: var(--border-default); }
+
+    .btn-danger {
+      background: var(--status-red-bg);
+      border-color: var(--status-red-border);
+      color: var(--status-red-text);
+    }
+    .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
+
+    .btn-sm { font-size: 11px; padding: 3px 8px; }
+
+    /* LAYOUT */
+    main {
+      flex: 1;
+      padding: 20px;
+      max-width: 1280px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .page-title-row {
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .page-heading { font-size: 16px; font-weight: 600; color: var(--text-main); }
+    .page-subtext { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+
     .card {
       background: var(--bg-card);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 20px;
-      backdrop-filter: blur(12px);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      overflow: hidden;
     }
-    .card-header {
+    .card-head {
+      padding: 10px 14px;
+      background: var(--bg-card-header);
+      border-bottom: 1px solid var(--border-default);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      padding-bottom: 12px;
+      font-size: 12px;
+      font-weight: 600;
     }
-    .card-title { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
-    .card-sub { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+    .card-body { padding: 14px; }
+
+    .metric-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .metric-name { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .metric-stat { font-size: 20px; font-weight: 700; color: var(--text-main); margin: 3px 0 1px; font-family: var(--font-mono); }
+    .metric-caption { font-size: 11px; color: var(--text-dim); }
 
     /* PRESETS */
-    .presets-container { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-    .preset-btn {
-      background: rgba(30, 41, 59, 0.6);
-      border: 1px solid var(--card-border);
+    .presets-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .preset-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .preset-pill:hover { color: var(--text-main); border-color: var(--text-muted); }
+
+    /* FORMS */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .field-group { display: flex; flex-direction: column; gap: 3px; }
+    .field-label { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+    .text-input, .select-input {
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: var(--radius);
+      outline: none;
+      width: 100%;
+    }
+    .text-input:focus, .select-input:focus { border-color: var(--border-focus); }
+
+    /* SCORECARD */
+    .verdict-card {
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      border: 1px solid transparent;
+    }
+    .verdict-card.allow { background: var(--status-green-bg); border-color: var(--status-green-border); }
+    .verdict-card.review { background: var(--status-amber-bg); border-color: var(--status-amber-border); }
+    .verdict-card.deny { background: var(--status-red-bg); border-color: var(--status-red-border); }
+
+    .verdict-main { font-size: 14px; font-weight: 700; }
+    .verdict-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    .score-big { font-size: 24px; font-weight: 700; font-family: var(--font-mono); line-height: 1; }
+    .score-big.allow { color: var(--status-green-text); }
+    .score-big.review { color: var(--status-amber-text); }
+    .score-big.deny { color: var(--status-red-text); }
+
+    /* TABLES */
+    .table-wrap {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th {
+      background: var(--bg-card-header);
       color: var(--text-muted);
       font-size: 11px;
       font-weight: 600;
-      padding: 6px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s;
+      text-align: left;
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border-default);
     }
-    .preset-btn:hover { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.4); }
+    td {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border-muted);
+      color: var(--text-main);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
-    /* FORM CONTROLS */
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .form-group { display: flex; flex-direction: column; gap: 6px; }
-    .form-group.full { grid-column: span 2; }
-    label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
-    input, select, textarea {
-      background: rgba(11, 17, 33, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #fff;
-      padding: 9px 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    input:focus, select:focus, textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
-    .btn-primary {
-      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 12px 20px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
+    .delta-bar {
       width: 100%;
-      margin-top: 16px;
-      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
-      transition: all 0.15s;
+      height: 4px;
+      background: var(--border-muted);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 3px;
     }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5); }
+    .delta-fill { height: 100%; border-radius: 2px; }
 
-    /* VERDICT HERO BANNER */
-    .verdict-box {
-      border-radius: 12px;
-      padding: 18px 20px;
-      margin-bottom: 18px;
+    /* CODE DOCS */
+    .lang-bar {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border: 1px solid transparent;
+      background: var(--bg-card-header);
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border-default);
+      gap: 4px;
     }
-    .verdict-box.clean { background: rgba(6, 78, 59, 0.3); border-color: #10b981; }
-    .verdict-box.stepup { background: rgba(120, 53, 15, 0.3); border-color: #f59e0b; }
-    .verdict-box.block { background: rgba(127, 29, 29, 0.35); border-color: #ef4444; }
+    .lang-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .lang-btn.active { background: var(--border-default); color: var(--text-main); font-weight: 600; }
 
-    .score-display { font-size: 38px; font-weight: 800; font-family: var(--font-mono); }
-    .score-display.clean { color: #10b981; }
-    .score-display.stepup { color: #f59e0b; }
-    .score-display.block { color: #ef4444; }
-
-    /* CODE SNIPPETS */
-    .code-tabs { display: flex; gap: 4px; background: rgba(15, 23, 42, 0.9); padding: 4px; border-radius: 8px 8px 0 0; border: 1px solid var(--card-border); border-bottom: none; }
-    .code-tab-btn { background: transparent; border: none; color: var(--text-muted); padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 6px; }
-    .code-tab-btn.active { color: #fff; background: rgba(59, 130, 246, 0.2); }
     .code-box {
-      background: #090d16;
-      border: 1px solid var(--card-border);
-      border-radius: 0 0 10px 10px;
-      padding: 16px;
+      background: #090c10;
+      padding: 14px;
       font-family: var(--font-mono);
       font-size: 12px;
-      color: #e2e8f0;
-      position: relative;
-      overflow-x: auto;
-      max-height: 480px;
+      color: #c9d1d9;
       line-height: 1.5;
+      overflow-x: auto;
     }
-    .copy-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(30, 41, 59, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: #cbd5e1;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .copy-btn:hover { background: #3b82f6; color: #fff; }
-
-    /* SIGNALS TABLE */
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { text-align: left; padding: 8px 10px; color: var(--text-muted); border-bottom: 1px solid rgba(255, 255, 255, 0.08); font-weight: 600; }
-    td { padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); }
-    .signal-bar-wrap { width: 100%; height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; margin-top: 4px; }
-    .signal-bar { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
-
-    /* API KEYS TABLE */
-    .key-badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; }
-    .key-live { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .key-test { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .code-box pre { margin: 0; }
 
     /* MODAL */
-    .modal-overlay {
+    .modal-backdrop {
       position: fixed;
       inset: 0;
       background: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(8px);
       display: none;
       align-items: center;
       justify-content: center;
-      z-index: 200;
+      z-index: 500;
+      padding: 16px;
     }
-    .modal-overlay.open { display: flex; }
-    .modal-box {
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 16px;
-      padding: 28px;
-      width: 420px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    .modal-backdrop.open { display: flex; }
+    .modal-window {
+      background: var(--bg-card);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 380px;
+      padding: 20px;
     }
-    .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
-    .modal-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+
+    .modal-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .modal-title-text { font-size: 14px; font-weight: 600; }
+
+    .seg-tabs {
+      display: flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      padding: 2px;
+      margin-bottom: 14px;
+    }
+    .seg-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 0;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+      font-family: inherit;
+    }
+    .seg-btn.active { background: var(--bg-card-header); color: var(--text-main); font-weight: 600; }
 
     /* TOAST */
-    .toast {
+    .toast-msg {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: #1e293b;
-      border: 1px solid #3b82f6;
-      color: #fff;
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-size: 13px;
+      bottom: 20px;
+      right: 20px;
+      background: var(--bg-card-header);
+      border: 1px solid var(--border-default);
+      color: var(--text-main);
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: var(--radius);
       display: none;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-      z-index: 300;
+      z-index: 1000;
     }
-    .toast.show { display: block; animation: fadeIn 0.2s ease; }
+    .toast-msg.show { display: block; }
+
+    @media (max-width: 850px) {
+      .grid-2col, .metrics-row { grid-template-columns: 1fr; }
+      header { padding: 0 12px; }
+      main { padding: 12px; }
+    }
   </style>
 </head>
 <body>
 
+  <!-- HEADER -->
   <header>
-    <div class="brand-wrap">
-      <div class="brand-logo">&#x1F6E1;&#xFE0F;</div>
-      <div>
-        <div class="brand-name">Fraud Detection ML Model</div>
-        <div style="font-size: 10px; color: var(--text-muted);">Commercial Anti-Abuse API Platform</div>
-      </div>
-      <span class="brand-tag">ROC-AUC: 0.973 | Recall: 93.8%</span>
+    <div class="nav-left">
+      <a href="#" class="brand-title" onclick="switchTab('playground')">
+        <span>Fraud Detection</span>
+      </a>
+
+      <nav>
+        <button id="nav-playground" class="nav-tab active" onclick="switchTab('playground')">Playground</button>
+        <button id="nav-apikeys" class="nav-tab" onclick="switchTab('apikeys')">API Keys</button>
+        <button id="nav-customers" class="nav-tab" onclick="switchTab('customers')">Customers</button>
+        <button id="nav-docs" class="nav-tab" onclick="switchTab('docs')">API Docs</button>
+        <button id="nav-model" class="nav-tab" onclick="switchTab('model')">Model Metrics</button>
+      </nav>
     </div>
 
-    <nav>
-      <button class="nav-tab active" onclick="switchTab('playground')">Playground</button>
-      <button class="nav-tab" onclick="switchTab('apikeys')">API Keys & Quota</button>
-      <button class="nav-tab" onclick="switchTab('snippets')">Code Snippets</button>
-      <button class="nav-tab" onclick="switchTab('docs')">API Reference</button>
-      <button class="nav-tab" onclick="switchTab('guide')">Integration Guide</button>
-      <button class="nav-tab" onclick="switchTab('arch')">Architecture</button>
-    </nav>
-
-    <div class="user-auth-wrap" id="auth-container">
-      <button class="auth-btn" onclick="openAuthModal()">Sign In / Get API Key</button>
+    <div class="nav-right" id="header-auth-box">
+      <button class="btn btn-blue btn-sm" onclick="openAuthModal()">Sign In</button>
     </div>
   </header>
 
   <main>
     <!-- TAB 1: PLAYGROUND -->
-    <div id="tab-playground" class="tab-pane active">
-      <div class="grid-2">
-        <!-- Request Builder -->
+    <div id="tab-playground" class="tab-content active">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-heading">Signup Fraud Evaluation</h1>
+          <p class="page-subtext">Real-time risk scoring for trial registrations.</p>
+        </div>
+      </div>
+
+      <div class="presets-group">
+        <span style="font-size:11px; color:var(--text-dim); font-weight:500;">Presets:</span>
+        <button class="preset-pill" onclick="applyPreset('genuine')">Legitimate Customer</button>
+        <button class="preset-pill" onclick="applyPreset('syndicate')">Collusion Syndicate</button>
+        <button class="preset-pill" onclick="applyPreset('velocity')">Velocity Fingerprint Abuse</button>
+        <button class="preset-pill" onclick="applyPreset('mismatch')">Country Mismatch</button>
+      </div>
+
+      <div class="grid-2col">
+        <!-- Input Form -->
         <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Event Payload Builder</div>
-              <div class="card-sub">Simulate real-time signups against the inference engine</div>
-            </div>
-            <span style="font-size: 11px; font-family: var(--font-mono); color: #38bdf8;">POST /api/v1/score</span>
+          <div class="card-head">
+            <span>Event Payload</span>
+            <span style="font-family:var(--font-mono); font-weight:400; color:var(--text-dim);">POST /api/v1/score</span>
           </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="field-group">
+                <label class="field-label">Name</label>
+                <input type="text" id="f-name" class="text-input" value="Sarah Miller">
+              </div>
+              <div class="field-group">
+                <label class="field-label">Email</label>
+                <input type="email" id="f-email" class="text-input" value="sarah.miller@gmail.com">
+              </div>
+            </div>
 
-          <div class="presets-container">
-            <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Presets:</span>
-            <button class="preset-btn" onclick="loadPreset('clean')">&#x1F7E2; Clean User</button>
-            <button class="preset-btn" onclick="loadPreset('repeat_syndicate')">&#x1F534; Repeat Syndicate</button>
-            <button class="preset-btn" onclick="loadPreset('burner')">&#x1F7E1; Zero-Shot Burner</button>
-            <button class="preset-btn" onclick="loadPreset('geo_mismatch')">&#x1F30E; Geo Mismatch</button>
+            <div class="form-row">
+              <div class="field-group">
+                <label class="field-label">IP Address</label>
+                <input type="text" id="f-ip" class="text-input" value="198.51.100.24">
+              </div>
+              <div class="field-group">
+                <label class="field-label">Device Fingerprint</label>
+                <input type="text" id="f-device" class="text-input" value="dev_macbook_pro_m2_99">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field-group">
+                <label class="field-label">Payment Token</label>
+                <input type="text" id="f-payment" class="text-input" value="pm_visa_auth_8821">
+              </div>
+              <div class="field-group">
+                <label class="field-label">Billing City</label>
+                <input type="text" id="f-area" class="text-input" value="new york">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field-group">
+                <label class="field-label">Operating System</label>
+                <select id="f-os" class="select-input">
+                  <option value="mac">macOS</option>
+                  <option value="windows">Windows</option>
+                  <option value="linux">Linux</option>
+                  <option value="ios">iOS</option>
+                  <option value="android">Android</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Card Country</label>
+                <select id="f-country" class="select-input">
+                  <option value="US">United States (US)</option>
+                  <option value="GB">United Kingdom (GB)</option>
+                  <option value="IN">India (IN)</option>
+                  <option value="SG">Singapore (SG)</option>
+                  <option value="DE">Germany (DE)</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn btn-blue" style="width:100%; margin-top:6px; padding:7px 0;" onclick="submitScoring()">Run Fraud Check</button>
           </div>
-
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Full Name</label>
-              <input type="text" id="inp-name" value="David Smith">
-            </div>
-            <div class="form-group">
-              <label>Signup Email</label>
-              <input type="email" id="inp-email" value="david.smith@gmail.com">
-            </div>
-            <div class="form-group">
-              <label>IP Address</label>
-              <input type="text" id="inp-ip" value="203.0.113.45">
-            </div>
-            <div class="form-group">
-              <label>Device ID</label>
-              <input type="text" id="inp-device" value="dev_macbook_london_99">
-            </div>
-            <div class="form-group">
-              <label>Payment Token</label>
-              <input type="text" id="inp-payment" value="pm_barclays_unique_101">
-            </div>
-            <div class="form-group">
-              <label>Signup City</label>
-              <select id="inp-area">
-                <option value="london">London (GB)</option>
-                <option value="mumbai">Mumbai (IN)</option>
-                <option value="delhi">Delhi (IN)</option>
-                <option value="bangalore">Bangalore (IN)</option>
-                <option value="singapore">Singapore (SG)</option>
-                <option value="new_york">New York (US)</option>
-                <option value="san_francisco">San Francisco (US)</option>
-                <option value="dubai">Dubai (AE)</option>
-                <option value="toronto">Toronto (CA)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Device OS</label>
-              <select id="inp-os">
-                <option value="macos">macOS</option>
-                <option value="windows">Windows</option>
-                <option value="android">Android</option>
-                <option value="ios">iOS</option>
-                <option value="linux">Linux</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Card BIN Country</label>
-              <select id="inp-payment-country">
-                <option value="GB">United Kingdom (GB)</option>
-                <option value="IN">India (IN)</option>
-                <option value="US">United States (US)</option>
-                <option value="SG">Singapore (SG)</option>
-                <option value="AE">United Arab Emirates (AE)</option>
-                <option value="CA">Canada (CA)</option>
-              </select>
-            </div>
-          </div>
-
-          <button class="btn-primary" onclick="executeScoring()">Score Signup Event (<15ms)</button>
         </div>
 
-        <!-- Live Verdict Response -->
+        <!-- Output Scorecard -->
         <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Live Risk Decision Output</div>
-              <div class="card-sub" id="res-latency">Ready for inference</div>
-            </div>
-            <span id="res-headers-tag" style="font-size: 10px; font-family: var(--font-mono); color: #94a3b8;">X-RateLimit: 60/min</span>
+          <div class="card-head">
+            <span>Evaluation Result</span>
+            <span id="out-latency-tag" style="font-family:var(--font-mono); font-weight:400; color:var(--text-dim);">Ready</span>
           </div>
-
-          <!-- Hero Verdict Box -->
-          <div class="verdict-box clean" id="verdict-banner">
-            <div>
-              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">VERDICT & ACTION</div>
-              <div id="res-verdict-title" style="font-size: 18px; font-weight: 800; color: #a7f3d0; margin-top: 2px;">NEW USER (GENUINE)</div>
-              <div id="res-action-desc" style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">Action: ALLOW Instant Trial Access</div>
+          <div class="card-body">
+            <div id="verdict-banner-el" class="verdict-card allow">
+              <div>
+                <div style="font-size:10px; font-weight:600; color:var(--text-muted);">DECISION</div>
+                <div id="verdict-label" class="verdict-main" style="color:var(--status-green-text);">ALLOW (GENUINE)</div>
+                <div id="verdict-action" class="verdict-desc">Action: Allow trial access</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:10px; font-weight:600; color:var(--text-muted);">RISK SCORE</div>
+                <div id="verdict-score" class="score-big allow">0.5</div>
+              </div>
             </div>
-            <div style="text-align: right;">
-              <div style="font-size: 10px; color: var(--text-muted);">RISK SCORE</div>
-              <div class="score-display clean" id="res-score-num">0.5</div>
+
+            <div class="metrics-row" style="margin-bottom:12px;">
+              <div class="metric-box" style="padding:8px 10px;">
+                <div class="metric-name" style="font-size:10px;">Confidence</div>
+                <div id="metric-conf" style="font-size:14px; font-weight:700; font-family:var(--font-mono); margin-top:2px;">99.5%</div>
+              </div>
+              <div class="metric-box" style="padding:8px 10px;">
+                <div class="metric-name" style="font-size:10px;">Threshold</div>
+                <div style="font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent-blue); margin-top:2px;">T = 10.0</div>
+              </div>
+              <div class="metric-box" style="padding:8px 10px;">
+                <div class="metric-name" style="font-size:10px;">Record ID</div>
+                <div id="metric-cid" style="font-size:11px; font-weight:600; font-family:var(--font-mono); margin-top:4px;">--</div>
+              </div>
+            </div>
+
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">Signal Weights</div>
+            <div class="table-wrap" style="max-height:175px; overflow-y:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Value</th>
+                    <th>Weight</th>
+                  </tr>
+                </thead>
+                <tbody id="signals-tbody">
+                  <tr><td colspan="3" style="text-align:center; color:var(--text-dim); padding:14px;">Submit a payload to view feature weights</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <div class="grid-3" style="margin-bottom: 16px;">
-            <div style="background: rgba(11, 17, 33, 0.6); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="font-size: 10px; color: var(--text-muted);">CERTAINTY</div>
-              <div id="res-confidence" style="font-size: 14px; font-weight: 700; color: #fff;">99.5%</div>
-            </div>
-            <div style="background: rgba(11, 17, 33, 0.6); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="font-size: 10px; color: var(--text-muted);">DECISION THRESHOLD</div>
-              <div style="font-size: 14px; font-weight: 700; color: #38bdf8;">T = 10.0</div>
-            </div>
-            <div style="background: rgba(11, 17, 33, 0.6); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="font-size: 10px; color: var(--text-muted);">GRAPH LINKAGE</div>
-              <div id="res-graph-nodes" style="font-size: 14px; font-weight: 700; color: #a855f7;">1 node (clean)</div>
-            </div>
+    <!-- TAB 2: API KEYS -->
+    <div id="tab-apikeys" class="tab-content">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-heading">API Keys & Quotas</h1>
+          <p class="page-subtext">Manage outbound authentication keys for backend integration.</p>
+        </div>
+      </div>
+
+      <div id="keys-unauth-view" class="card" style="text-align:center; padding:36px 16px; max-width:440px; margin:20px auto;">
+        <h2 style="font-size:14px; font-weight:600; margin-bottom:6px;">Authentication Required</h2>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">
+          Sign in or register a verified developer account to generate up to 3 API keys.
+        </p>
+        <button class="btn btn-blue" onclick="openAuthModal()">Sign In</button>
+      </div>
+
+      <div id="keys-auth-view" style="display:none;">
+        <div class="metrics-row">
+          <div class="metric-box">
+            <div class="metric-name">Active Keys</div>
+            <div id="key-count-stat" class="metric-stat">0 / 3</div>
+            <div class="metric-caption">Max 3 keys per verified tenant</div>
           </div>
+          <div class="metric-box">
+            <div class="metric-name">Rate Limit</div>
+            <div class="metric-stat" style="color:var(--accent-blue);">30 <span style="font-size:12px; font-weight:400; color:var(--text-muted);">req/min</span></div>
+            <div class="metric-caption">Sliding 60-second window</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-name">Security</div>
+            <div class="metric-stat" style="font-size:16px; color:#d2a8ff;">SHA-256</div>
+            <div class="metric-caption">Zero plaintext storage</div>
+          </div>
+        </div>
 
-          <!-- Signal Breakdown Table -->
-          <div style="font-size: 12px; font-weight: 700; margin-bottom: 8px; color: #e2e8f0;">Top Contributing Risk Signals</div>
-          <div style="max-height: 220px; overflow-y: auto;">
+        <div class="card">
+          <div class="card-head">
+            <span>API Keys</span>
+            <button class="btn btn-blue btn-sm" onclick="openKeyModal()">+ New Key</button>
+          </div>
+          <div class="table-wrap" style="border:none;">
             <table>
               <thead>
                 <tr>
-                  <th>Signal Name</th>
-                  <th>Raw Value</th>
-                  <th>Contribution</th>
+                  <th>Label</th>
+                  <th>Type</th>
+                  <th>Key Token</th>
+                  <th>Rate Limit</th>
+                  <th>Created</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
-              <tbody id="res-signals-table">
-                <tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">Execute a request to view feature contributions</td></tr>
+              <tbody id="keys-tbody">
+                <!-- Dynamically populated -->
               </tbody>
             </table>
           </div>
@@ -485,314 +738,266 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- TAB 2: API KEYS & QUOTA -->
-    <div id="tab-apikeys" class="tab-pane">
-      <div class="grid-3" style="margin-bottom: 20px;">
-        <div class="card">
-          <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">ACTIVE API KEYS</div>
-          <div id="key-count-display" style="font-size: 28px; font-weight: 800; color: #fff; margin-top: 4px;">2</div>
-          <div style="font-size: 11px; color: #6ee7b7; margin-top: 4px;">&#x2714; Production Ready</div>
+    <!-- TAB 3: CUSTOMERS -->
+    <div id="tab-customers" class="tab-content">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-heading">Customer Records</h1>
+          <p class="page-subtext">Tenant audit directory of scored registration events.</p>
         </div>
-        <div class="card">
-          <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">RATE LIMIT QUOTA</div>
-          <div style="font-size: 28px; font-weight: 800; color: #38bdf8; margin-top: 4px;">60 <span style="font-size: 14px; color: var(--text-muted);">req/min</span></div>
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sliding 60s Window</div>
-        </div>
-        <div class="card">
-          <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">UPTIME STATUS</div>
-          <div style="font-size: 28px; font-weight: 800; color: #10b981; margin-top: 4px;">99.99%</div>
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Average Latency: 3.4ms</div>
+        <div style="width:240px;">
+          <input type="text" id="cust-search-box" class="text-input" placeholder="Search email, IP, device..." oninput="filterCustomerSearch(this.value)">
         </div>
       </div>
 
       <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Registered API Keys</div>
-            <div class="card-sub">Use these keys to authenticate requests in your production backend</div>
-          </div>
-          <button class="auth-btn" onclick="openNewKeyModal()">+ Create New API Key</button>
+        <div class="table-wrap" style="border:none;">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Email</th>
+                <th>IP Address</th>
+                <th>Device ID</th>
+                <th>Risk Score</th>
+                <th>Verdict</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="customers-tbody">
+              <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-dim);">Sign in to view customer evaluations.</td></tr>
+            </tbody>
+          </table>
         </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Label</th>
-              <th>Type</th>
-              <th>API Key</th>
-              <th>Rate Limit</th>
-              <th>Created</th>
-              <th>Usage (1m)</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="api-keys-table-body">
-            <!-- Rendered dynamically -->
-          </tbody>
-        </table>
       </div>
     </div>
 
-    <!-- TAB 3: CODE SNIPPETS -->
-    <div id="tab-snippets" class="tab-pane">
+    <!-- TAB 4: API DOCS -->
+    <div id="tab-docs" class="tab-content">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-heading">API Reference</h1>
+          <p class="page-subtext">Integrate fraud scoring into your application backend.</p>
+        </div>
+      </div>
+
       <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">Multi-Language Code Integration</div>
-            <div class="card-sub">Pre-formatted code using the exact payload configured in the Playground</div>
+        <div class="lang-bar">
+          <button id="tab-lang-curl" class="lang-btn active" onclick="setSnippetLang('curl')">cURL</button>
+          <button id="tab-lang-python" class="lang-btn" onclick="setSnippetLang('python')">Python</button>
+          <button id="tab-lang-sdk" class="lang-btn" onclick="setSnippetLang('sdk')">Python SDK</button>
+          <button id="tab-lang-node" class="lang-btn" onclick="setSnippetLang('node')">Node.js</button>
+          <button id="tab-lang-js" class="lang-btn" onclick="setSnippetLang('js')">JavaScript</button>
+          <button id="tab-lang-go" class="lang-btn" onclick="setSnippetLang('go')">Go</button>
+          <div style="margin-left:auto;">
+            <button class="btn btn-secondary btn-sm" onclick="copySnippetCode()">Copy</button>
           </div>
         </div>
-
-        <div class="code-tabs">
-          <button class="code-tab-btn active" onclick="switchCodeTab('curl')">cURL</button>
-          <button class="code-tab-btn" onclick="switchCodeTab('python')">Python (requests)</button>
-          <button class="code-tab-btn" onclick="switchCodeTab('python-sdk')">Python SDK (client.py)</button>
-          <button class="code-tab-btn" onclick="switchCodeTab('javascript')">JavaScript (Fetch)</button>
-          <button class="code-tab-btn" onclick="switchCodeTab('nodejs')">Node.js (Express Middleware)</button>
-          <button class="code-tab-btn" onclick="switchCodeTab('go')">Go</button>
-        </div>
-
         <div class="code-box">
-          <button class="copy-btn" onclick="copySnippet()">Copy Code</button>
-          <pre id="snippet-content"><code>Loading snippets...</code></pre>
+          <pre id="snippet-target">Loading snippet...</pre>
         </div>
       </div>
     </div>
 
-    <!-- TAB 4: API REFERENCE -->
-    <div id="tab-docs" class="tab-pane">
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Core Endpoints</div>
-            <a href="/docs" target="_blank" style="font-size: 11px; color: #38bdf8; text-decoration: none;">Open Interactive Swagger UI &rarr;</a>
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 14px;">
-            <div style="background: rgba(11, 17, 33, 0.8); padding: 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px;">
-                <span style="background: #2563eb; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">POST</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 600;">/api/v1/score</span>
-              </div>
-              <div style="font-size: 12px; color: var(--text-muted);">Scores a single signup event synchronously in &lt;15ms. Returns calibrated 0-100 risk score and 3-band verdict.</div>
-            </div>
-
-            <div style="background: rgba(11, 17, 33, 0.8); padding: 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px;">
-                <span style="background: #2563eb; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">POST</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 600;">/api/v1/batch</span>
-              </div>
-              <div style="font-size: 12px; color: var(--text-muted);">Scores an array of signup events in a single HTTP transaction.</div>
-            </div>
-
-            <div style="background: rgba(11, 17, 33, 0.8); padding: 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px;">
-                <span style="background: #059669; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">GET</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 600;">/healthz</span>
-              </div>
-              <div style="font-size: 12px; color: var(--text-muted);">Load-balancer and Kubernetes health & readiness probe.</div>
-            </div>
-
-            <div style="background: rgba(11, 17, 33, 0.8); padding: 14px; border-radius: 8px; border: 1px solid var(--card-border);">
-              <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px;">
-                <span style="background: #059669; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">GET</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 600;">/api/v1/drift</span>
-              </div>
-              <div style="font-size: 12px; color: var(--text-muted);">Returns Population Stability Index (PSI) feature & prediction drift telemetry.</div>
-            </div>
-          </div>
+    <!-- TAB 5: MODEL METRICS -->
+    <div id="tab-model" class="tab-content">
+      <div class="page-title-row">
+        <div>
+          <h1 class="page-heading">Model Benchmarks & Thresholds</h1>
+          <p class="page-subtext">Telemetry and classification boundaries.</p>
         </div>
+        <button class="btn btn-secondary btn-sm" onclick="runRetraining()">Retrain Model</button>
+      </div>
 
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">HTTP Response & Status Codes</div>
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
-            <div style="display: flex; justify-content: space-between; padding: 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px; border-left: 3px solid #10b981;">
-              <span style="font-family: var(--font-mono); font-weight: 700;">200 OK</span>
-              <span style="color: var(--text-muted);">Scoring successful. Returns full risk payload and signal breakdown.</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
-              <span style="font-family: var(--font-mono); font-weight: 700;">401 Unauthorized</span>
-              <span style="color: var(--text-muted);">Missing or invalid API key (`fk_live_...` / `fk_test_...`).</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; border-left: 3px solid #f59e0b;">
-              <span style="font-family: var(--font-mono); font-weight: 700;">429 Too Many Requests</span>
-              <span style="color: var(--text-muted);">Rate limit exceeded (60 req/min). Returns `Retry-After` header.</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; padding: 8px; background: rgba(148, 163, 184, 0.1); border-radius: 6px; border-left: 3px solid #94a3b8;">
-              <span style="font-family: var(--font-mono); font-weight: 700;">422 Validation Error</span>
-              <span style="color: var(--text-muted);">Malformed JSON body or missing required attributes.</span>
-            </div>
-          </div>
+      <div class="metrics-row">
+        <div class="metric-box">
+          <div class="metric-name">ROC-AUC</div>
+          <div class="metric-stat" style="color:var(--status-green-text);">0.941</div>
+          <div class="metric-caption">5-Fold Stratified Validation</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Precision @ Threshold</div>
+          <div class="metric-stat" style="color:var(--accent-blue);">91.2%</div>
+          <div class="metric-caption">Target &ge; 85% Precision</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Inference Latency</div>
+          <div class="metric-stat" style="color:#d2a8ff;">&lt; 5ms</div>
+          <div class="metric-caption">Vectorized scoring</div>
         </div>
       </div>
-    </div>
 
-    <!-- TAB 5: INTEGRATION GUIDE -->
-    <div id="tab-guide" class="tab-pane">
-      <div class="card" style="line-height: 1.6; font-size: 13px;">
-        <div class="card-header">
-          <div class="card-title">A-to-Z Commercial Integration Guide</div>
-        </div>
-
-        <h3 style="color: #38bdf8; margin: 16px 0 6px;">Step 1: Obtain your API Key</h3>
-        <p style="color: var(--text-muted);">Sign in to the developer portal and generate a production key (<code>fk_live_...</code>). Include it in all outbound HTTP calls via the <code>X-API-Key</code> header.</p>
-
-        <h3 style="color: #38bdf8; margin: 20px 0 6px;">Step 2: Collect Identity Tokens on the Signup Form</h3>
-        <p style="color: var(--text-muted);">Collect the standard signup fields from the client:</p>
-        <ul style="margin-left: 20px; color: var(--text-muted);">
-          <li><code>name</code> and <code>email</code> from registration inputs.</li>
-          <li><code>ip_address</code> resolved from the incoming server request header (e.g. <code>req.ip</code> or <code>X-Forwarded-For</code>).</li>
-          <li><code>device_id</code> client-side hardware fingerprint hash.</li>
-          <li><code>payment_token</code> tokenized card token from Stripe/Adyen/Braintree.</li>
-        </ul>
-
-        <h3 style="color: #38bdf8; margin: 20px 0 6px;">Step 3: Enforce 3-Band Downstream Decision Policy</h3>
-        <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid var(--card-border); margin: 8px 0; font-family: var(--font-mono); font-size: 12px;">
-<span style="color: #60a5fa;">const</span> { verdict, risk_score } = <span style="color: #60a5fa;">await</span> fraudResponse.json();<br><br>
-<span style="color: #f59e0b;">if</span> (verdict === <span style="color: #a7f3d0;">"REPEATING USER (LIKELY ABUSE)"</span>) {<br>
-&nbsp;&nbsp;<span style="color: #ef4444;">// Hard Block: Require immediate paid card checkout, no trial</span><br>
-&nbsp;&nbsp;<span style="color: #60a5fa;">return</span> res.status(403).json({ error: <span style="color: #a7f3d0;">"Trial limit reached. Please upgrade to a paid tier."</span> });<br>
-} <span style="color: #f59e0b;">else if</span> (verdict === <span style="color: #a7f3d0;">"SUSPICIOUS (STEP-UP)"</span>) {<br>
-&nbsp;&nbsp;<span style="color: #f59e0b;">// Grey Zone: Challenge with SMS OTP or CAPTCHA</span><br>
-&nbsp;&nbsp;<span style="color: #60a5fa;">return</span> res.json({ status: <span style="color: #a7f3d0;">"CHALLENGE_SMS_OTP"</span> });<br>
-} <span style="color: #f59e0b;">else</span> {<br>
-&nbsp;&nbsp;<span style="color: #10b981;">// Clean User: Grant instant 14-day trial</span><br>
-&nbsp;&nbsp;<span style="color: #60a5fa;">return</span> res.json({ status: <span style="color: #a7f3d0;">"TRIAL_ACTIVATED"</span> });<br>
-}
-        </div>
-
-        <h3 style="color: #38bdf8; margin: 20px 0 6px;">Step 4: Fail-Open Timeout Guard</h3>
-        <p style="color: var(--text-muted);">Always configure a strict 500ms timeout on client HTTP requests. If the fraud check times out or network drops, fail-open to ensure legitimate customer conversion is never interrupted by transient infrastructure failures.</p>
-      </div>
-    </div>
-
-    <!-- TAB 6: ARCHITECTURE -->
-    <div id="tab-arch" class="tab-pane">
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">ROC & PR Curves</div>
+      <div class="card">
+        <div class="card-head">Decision Strategy</div>
+        <div class="card-body">
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
+            <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:11px; font-weight:600; color:var(--status-green-text);">0.0 - 9.9: ALLOW</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Frictionless access for legitimate users.</div>
+            </div>
+            <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">10.0 - 39.9: REVIEW</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requires step-up 2FA or SMS verification.</div>
+            </div>
+            <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:11px; font-weight:600; color:var(--status-red-text);">40.0 - 100.0: DENY</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Immediate refusal and termination.</div>
+            </div>
           </div>
-          <img src="/visuals/evaluation/roc_curve.png" style="width: 100%; border-radius: 8px;" alt="ROC Curve" onerror="this.style.display='none'">
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Feature Attribution & SHAP</div>
-          </div>
-          <img src="/visuals/explainability/shap_summary.png" style="width: 100%; border-radius: 8px;" alt="SHAP Summary" onerror="this.style.display='none'">
         </div>
       </div>
     </div>
   </main>
 
   <!-- AUTH MODAL -->
-  <div class="modal-overlay" id="auth-modal">
-    <div class="modal-box">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class="modal-title">Developer Authentication</div>
-        <button onclick="closeAuthModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">&times;</button>
-      </div>
-      <div class="modal-desc">Sign in with Firebase to access production API keys and quota management.</div>
-
-      <div class="form-group" style="margin-bottom: 12px;">
-        <label>Email Address</label>
-        <input type="email" id="auth-email" value="developer@enterprise.io">
-      </div>
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label>Password</label>
-        <input type="password" id="auth-pwd" value="••••••••••••">
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal-window">
+      <div class="modal-top">
+        <div class="modal-title-text" id="auth-modal-title">Sign In</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeAuthModal()">✕</button>
       </div>
 
-      <button class="btn-primary" onclick="handleFirebaseLogin()" style="margin-bottom: 10px;">Sign In with Email</button>
-      <button class="btn-primary" onclick="handleDemoLogin()" style="background: rgba(30, 41, 59, 0.9); border: 1px solid var(--card-border); color: #cbd5e1; box-shadow: none;">Instant Demo Login</button>
+      <div class="seg-tabs">
+        <button id="seg-signin" class="seg-btn active" onclick="setAuthTab('signin')">Sign In</button>
+        <button id="seg-signup" class="seg-btn" onclick="setAuthTab('signup')">Create Account</button>
+      </div>
+
+      <div id="auth-error-msg" style="display:none; color:var(--status-red-text); background:var(--status-red-bg); border:1px solid var(--status-red-border); border-radius:var(--radius); padding:6px 10px; margin-bottom:10px; font-size:11px;"></div>
+
+      <div class="field-group" style="margin-bottom:8px;">
+        <label class="field-label">Email</label>
+        <input type="email" id="auth-email" class="text-input" placeholder="name@company.com">
+      </div>
+      <div class="field-group" style="margin-bottom:12px;">
+        <label class="field-label">Password</label>
+        <input type="password" id="auth-pwd" class="text-input" placeholder="Min 6 characters">
+      </div>
+
+      <button id="auth-submit-action" class="btn btn-blue" style="width:100%; margin-bottom:6px;" onclick="submitAuthForm()">Sign In</button>
+      <button class="btn btn-secondary" style="width:100%;" onclick="submitGoogleAuth()">Continue with Google</button>
     </div>
   </div>
 
-  <!-- NEW KEY MODAL -->
-  <div class="modal-overlay" id="key-modal">
-    <div class="modal-box">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class="modal-title">Create API Key</div>
-        <button onclick="closeNewKeyModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">&times;</button>
-      </div>
-      <div class="modal-desc">Generate a live production key or sandbox test key.</div>
+  <!-- EMAIL VERIFICATION WAITING MODAL -->
+  <div class="modal-backdrop" id="verify-modal">
+    <div class="modal-window" style="text-align:center;">
+      <div id="verify-waiting-pane">
+        <h2 style="font-size:14px; font-weight:600; margin-bottom:4px;">Verify Your Email</h2>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+          Verification link sent to<br><strong id="verify-target-email" style="color:var(--text-main);"></strong>
+        </p>
 
-      <div class="form-group" style="margin-bottom: 12px;">
-        <label>Key Name / Purpose</label>
-        <input type="text" id="new-key-name" value="Production Backend API">
+        <div style="background:var(--status-amber-bg); border:1px solid var(--status-amber-border); border-radius:var(--radius); padding:8px 10px; margin-bottom:12px; text-align:left;">
+          <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">Check Spam / Junk Folder</div>
+          <div style="font-size:11px; color:#cbd5e1;">If you do not see the email, please check your spam folder.</div>
+        </div>
+
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">Waiting for confirmation...</div>
+
+        <div style="display:flex; gap:6px; justify-content:center;">
+          <button class="btn btn-secondary btn-sm" onclick="resendVerifyEmail()">Resend Email</button>
+          <button class="btn btn-blue btn-sm" onclick="checkVerifyStatus()">Check Status</button>
+        </div>
       </div>
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label>Key Type</label>
-        <select id="new-key-type">
-          <option value="live">Live Production (fk_live_... | 60 req/min)</option>
-          <option value="test">Sandbox Test (fk_test_... | 120 req/min)</option>
+
+      <div id="verify-success-pane" style="display:none; padding:10px 0;">
+        <h2 style="font-size:14px; font-weight:600; color:var(--status-green-text); margin-bottom:4px;">Email Verified</h2>
+        <p style="font-size:12px; color:var(--text-muted);">Logging you in...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- KEY CREATION MODAL -->
+  <div class="modal-backdrop" id="key-modal">
+    <div class="modal-window">
+      <div class="modal-top">
+        <div class="modal-title-text">Generate API Key</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeKeyModal()">✕</button>
+      </div>
+
+      <div class="field-group" style="margin-bottom:8px;">
+        <label class="field-label">Key Name</label>
+        <input type="text" id="k-name" class="text-input" placeholder="e.g. Production Backend">
+      </div>
+      <div class="field-group" style="margin-bottom:14px;">
+        <label class="field-label">Environment</label>
+        <select id="k-type" class="select-input">
+          <option value="live">Live (fk_live_...)</option>
+          <option value="test">Test (fk_test_...)</option>
         </select>
       </div>
 
-      <button class="btn-primary" onclick="submitCreateApiKey()">Generate Secret Key</button>
+      <button class="btn btn-blue" style="width:100%;" onclick="submitKeyCreation()">Generate Key</button>
     </div>
   </div>
 
-  <div class="toast" id="toast-msg">Copied to clipboard!</div>
+  <!-- SECRET KEY REVEAL MODAL (SHOWN ONCE AT CREATION) -->
+  <div class="modal-backdrop" id="key-reveal-modal">
+    <div class="modal-window">
+      <div class="modal-top">
+        <div class="modal-title-text" style="color:var(--status-green-text);">API Key Created</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeKeyRevealModal()">✕</button>
+      </div>
+
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+        Please copy this secret key now. For security reasons, <strong>it will not be shown again</strong>.
+      </p>
+
+      <div style="background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius); padding:8px 10px; margin-bottom:12px; word-break:break-all;">
+        <code id="new-key-secret-val" style="font-family:var(--font-mono); color:var(--accent-blue); font-size:12px;"></code>
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-blue" style="flex:1;" onclick="copyRevealedKey()">Copy Key</button>
+        <button class="btn btn-secondary" onclick="closeKeyRevealModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast-msg" id="toast-bar"></div>
 
   <script>
-    // --- FIREBASE CONFIGURATION ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyDemoKey-FraudDetectionML",
-      authDomain: "fraud-detection-ml.firebaseapp.com",
-      projectId: "fraud-detection-ml",
-      storageBucket: "fraud-detection-ml.appspot.com",
-      messagingSenderId: "1234567890",
-      appId: "1:1234567890:web:abcdef123456"
-    };
+    let activeUser = null;
+    let primaryApiKey = null;
+    let snippetLang = 'curl';
+    let firebaseReady = false;
+    let authMode = 'signin';
+    let userKeyCount = 0;
+    let pollTimer = null;
 
-    let currentUser = null;
-    let currentCodeTab = 'curl';
-
-    try {
-      if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-      }
-    } catch (e) {
-      console.log('Firebase offline mode active.');
-    }
-
-    // --- PRESET SCENARIOS ---
     const PRESETS = {
-      clean: {
+      genuine: {
+        name: "Sarah Miller",
+        email: "sarah.miller@gmail.com",
+        ip: "198.51.100.24",
+        device: "dev_macbook_pro_m2_99",
+        payment: "pm_visa_auth_8821",
+        area: "new york",
+        os: "mac",
+        country: "US"
+      },
+      syndicate: {
         name: "David Smith",
-        email: "david.smith@gmail.com",
-        ip: "203.0.113.45",
-        device: "dev_macbook_london_99",
-        payment: "pm_barclays_unique_101",
-        area: "london",
-        os: "macos",
-        payment_country: "GB"
+        email: "david.attacker99@tempmail.com",
+        ip: "203.0.113.88",
+        device: "dev_fraud_farm_bot_01",
+        payment: "pm_card_syndicate_repeat",
+        area: "dubai",
+        os: "windows",
+        country: "US"
       },
-      repeat_syndicate: {
-        name: "Akash Verma",
-        email: "akash.v+trial1@mailinator.com",
-        ip: "88.189.145.12",
-        device: "460f1adf042934c1",
-        payment: "pm_9d3f935e045d",
-        area: "delhi",
-        os: "android",
-        payment_country: "IN"
-      },
-      burner: {
-        name: "Syndicate Bot 404",
-        email: "bot404+trial99@guerrillamail.com",
-        ip: "198.51.100.77",
-        device: "dev_fresh_burner_phone_88",
-        payment: "pm_fresh_prepaid_88",
+      velocity: {
+        name: "Bot Burst Node",
+        email: "burst_bot_42@fastburner.io",
+        ip: "185.220.101.5",
+        device: "dev_fraud_farm_bot_01",
+        payment: "pm_card_burner_token_19",
         area: "mumbai",
         os: "linux",
-        payment_country: "IN"
+        country: "IN"
       },
-      geo_mismatch: {
+      mismatch: {
         name: "Alex Johnson",
         email: "alex.johnson@outlook.com",
         ip: "103.20.10.56",
@@ -800,341 +1005,763 @@ HTML_PAGE = """<!DOCTYPE html>
         payment: "pm_chase_us_card_55",
         area: "singapore",
         os: "windows",
-        payment_country: "US"
+        country: "US"
       }
     };
 
-    function loadPreset(key) {
-      const p = PRESETS[key];
-      if (!p) return;
-      document.getElementById('inp-name').value = p.name;
-      document.getElementById('inp-email').value = p.email;
-      document.getElementById('inp-ip').value = p.ip;
-      document.getElementById('inp-device').value = p.device;
-      document.getElementById('inp-payment').value = p.payment;
-      document.getElementById('inp-area').value = p.area;
-      document.getElementById('inp-os').value = p.os;
-      document.getElementById('inp-payment-country').value = p.payment_country;
-      updateSnippet();
+    function logToBackend(level, msg) {
+      console.log(`[${level}]`, msg);
+      fetch('/api/v1/client-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level, message: typeof msg === 'object' ? JSON.stringify(msg) : String(msg) })
+      }).catch(() => {});
     }
 
-    function switchTab(tabId) {
-      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
-      document.getElementById('tab-' + tabId).classList.add('active');
-      event.target.classList.add('active');
-      if (tabId === 'apikeys') loadApiKeys();
-      if (tabId === 'snippets') updateSnippet();
+    async function initFirebaseClient() {
+      try {
+        const resp = await fetch('/api/v1/config/firebase');
+        const cfg = await resp.json();
+
+        if (cfg.apiKey && !firebase.apps.length) {
+          firebase.initializeApp({
+            apiKey: cfg.apiKey,
+            authDomain: cfg.authDomain,
+            projectId: cfg.projectId,
+            storageBucket: cfg.storageBucket,
+            messagingSenderId: cfg.messagingSenderId,
+            appId: cfg.appId
+          });
+          firebaseReady = true;
+          logToBackend('SUCCESS', `Firebase initialized for project: ${cfg.projectId}`);
+
+          firebase.auth().onAuthStateChanged(user => {
+            if (user) {
+              logToBackend('AUTH_STATE', `Active user: ${user.email} (UID: ${user.uid}) | Verified: ${user.emailVerified}`);
+              applyUserAuth(user.uid, user.email, user.displayName, user.emailVerified);
+            } else {
+              activeUser = null;
+              primaryApiKey = null;
+              renderAuthNav();
+              document.getElementById('keys-unauth-view').style.display = 'block';
+              document.getElementById('keys-auth-view').style.display = 'none';
+              renderSnippet();
+            }
+          });
+        } else if (firebase.apps.length) {
+          firebaseReady = true;
+        }
+      } catch (e) {
+        logToBackend('ERROR', 'Firebase init error: ' + (e.message || e));
+      }
     }
 
-    function switchCodeTab(lang) {
-      currentCodeTab = lang;
-      document.querySelectorAll('.code-tab-btn').forEach(el => el.classList.remove('active'));
-      event.target.classList.add('active');
-      updateSnippet();
+    function setAuthTab(tab) {
+      authMode = tab;
+      document.getElementById('auth-error-msg').style.display = 'none';
+      if (tab === 'signin') {
+        document.getElementById('seg-signin').classList.add('active');
+        document.getElementById('seg-signup').classList.remove('active');
+        document.getElementById('auth-modal-title').innerText = 'Sign In';
+        document.getElementById('auth-submit-action').innerText = 'Sign In';
+      } else {
+        document.getElementById('seg-signup').classList.add('active');
+        document.getElementById('seg-signin').classList.remove('active');
+        document.getElementById('auth-modal-title').innerText = 'Create Account';
+        document.getElementById('auth-submit-action').innerText = 'Create Account';
+      }
     }
 
-    async function executeScoring() {
+    function showAuthError(msg) {
+      const err = document.getElementById('auth-error-msg');
+      err.innerText = msg;
+      err.style.display = 'block';
+    }
+
+    function submitAuthForm() {
+      const email = document.getElementById('auth-email').value.trim();
+      const pwd = document.getElementById('auth-pwd').value.trim();
+
+      if (!email || !pwd) return showAuthError('Enter both email and password.');
+      if (pwd.length < 6) return showAuthError('Password must be at least 6 characters.');
+      if (!firebaseReady) return showAuthError('Connecting to Firebase auth service...');
+
+      const btn = document.getElementById('auth-submit-action');
+      btn.disabled = true;
+      btn.innerText = 'Working...';
+
+      if (authMode === 'signin') {
+        firebase.auth().signInWithEmailAndPassword(email, pwd)
+          .then(cred => {
+            btn.disabled = false;
+            btn.innerText = 'Sign In';
+            applyUserAuth(cred.user.uid, cred.user.email, cred.user.displayName, cred.user.emailVerified);
+            closeAuthModal();
+            toast("Signed in as " + cred.user.email);
+          })
+          .catch(err => {
+            btn.disabled = false;
+            btn.innerText = 'Sign In';
+            if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+              showAuthError('Incorrect password.');
+            } else if (err.code === 'auth/user-not-found') {
+              showAuthError('No account found for this email.');
+            } else {
+              showAuthError(err.message || 'Sign in failed.');
+            }
+          });
+      } else {
+        firebase.auth().createUserWithEmailAndPassword(email, pwd)
+          .then(cred => {
+            btn.disabled = false;
+            btn.innerText = 'Create Account';
+            cred.user.sendEmailVerification().catch(() => {});
+            closeAuthModal();
+            startEmailVerificationFlow(cred.user);
+          })
+          .catch(err => {
+            btn.disabled = false;
+            btn.innerText = 'Create Account';
+            if (err.code === 'auth/email-already-in-use') {
+              showAuthError('This email is already registered. Sign in above.');
+            } else {
+              showAuthError(err.message || 'Registration failed.');
+            }
+          });
+      }
+    }
+
+    function submitGoogleAuth() {
+      if (!firebaseReady) return showAuthError('Connecting to Firebase auth service...');
+      const provider = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(provider)
+        .then(cred => {
+          applyUserAuth(cred.user.uid, cred.user.email, cred.user.displayName, true);
+          closeAuthModal();
+          toast("Signed in with Google.");
+        })
+        .catch(err => {
+          if (err.code !== 'auth/popup-closed-by-user') {
+            showAuthError(err.message || 'Google sign in failed.');
+          }
+        });
+    }
+
+    function startEmailVerificationFlow(user) {
+      if (pollTimer) clearInterval(pollTimer);
+      document.getElementById('verify-target-email').innerText = user.email;
+      document.getElementById('verify-waiting-pane').style.display = 'block';
+      document.getElementById('verify-success-pane').style.display = 'none';
+      document.getElementById('verify-modal').classList.add('open');
+
+      pollTimer = setInterval(async () => {
+        try {
+          if (firebase.auth().currentUser) {
+            await firebase.auth().currentUser.reload();
+            if (firebase.auth().currentUser.emailVerified) {
+              handleVerificationSuccess(firebase.auth().currentUser);
+            }
+          }
+        } catch (e) {}
+      }, 2500);
+    }
+
+    async function checkVerifyStatus() {
+      if (firebaseReady && firebase.auth().currentUser) {
+        await firebase.auth().currentUser.reload();
+        await firebase.auth().currentUser.getIdToken(true);
+        if (firebase.auth().currentUser.emailVerified) {
+          handleVerificationSuccess(firebase.auth().currentUser);
+        } else {
+          toast("Email not yet verified. Please check inbox or spam folder.");
+        }
+      }
+    }
+
+    async function resendVerifyEmail() {
+      if (firebaseReady && firebase.auth().currentUser) {
+        try {
+          await firebase.auth().currentUser.sendEmailVerification();
+          toast("Verification email sent! Check spam folder.");
+        } catch (e) {
+          toast("Already sent recently. Please check your spam folder.");
+        }
+      }
+    }
+
+    function handleVerificationSuccess(user) {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      document.getElementById('verify-waiting-pane').style.display = 'none';
+      document.getElementById('verify-success-pane').style.display = 'block';
+
+      setTimeout(async () => {
+        document.getElementById('verify-modal').classList.remove('open');
+        await applyUserAuth(user.uid, user.email, user.displayName, true);
+        toast("Email verified.");
+      }, 1500);
+    }
+
+    async function applyUserAuth(uid, email, displayName, isVerified = true) {
+      try {
+        const res = await fetch('/api/v1/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid, email, display_name: displayName })
+        });
+        const data = await res.json();
+        activeUser = data.user;
+        activeUser.emailVerified = isVerified;
+        renderAuthNav();
+
+        document.getElementById('keys-unauth-view').style.display = 'none';
+        document.getElementById('keys-auth-view').style.display = 'block';
+
+        fetchKeys();
+        fetchCustomers();
+
+        // Sync to Firestore
+        if (firebaseReady && firebase.firestore) {
+          try {
+            const db = firebase.firestore();
+            db.collection('users').document(uid).set({
+              uid: uid,
+              email: email,
+              display_name: displayName || email.split('@')[0],
+              email_verified: Boolean(isVerified),
+              quota_per_min: 30,
+              last_login_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }, { merge: true }).catch(() => {});
+
+            db.collection('users').document(uid).collection('login_history').add({
+              login_at: new Date().toISOString(),
+              email: email,
+              user_agent: navigator.userAgent
+            }).catch(() => {});
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.log('Auth note:', e);
+      }
+    }
+
+    function renderAuthNav() {
+      const container = document.getElementById('header-auth-box');
+      if (activeUser) {
+        const verifiedTag = activeUser.emailVerified
+          ? `<span class="verified-badge">Verified</span>`
+          : `<span class="unverified-badge" onclick="startEmailVerificationFlow(firebase.auth().currentUser || activeUser)">Unverified</span>`;
+
+        container.innerHTML = `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="user-profile-badge">
+              <span class="user-email-text">${activeUser.email}</span>
+              ${verifiedTag}
+            </div>
+            <button class="btn-signout" onclick="logoutUser()">Sign Out</button>
+          </div>
+        `;
+      } else {
+        container.innerHTML = `<button class="btn btn-blue btn-sm" onclick="openAuthModal()">Sign In</button>`;
+      }
+    }
+
+    async function logoutUser() {
+      if (firebaseReady) {
+        await firebase.auth().signOut();
+      }
+      activeUser = null;
+      primaryApiKey = null;
+      renderAuthNav();
+      document.getElementById('keys-unauth-view').style.display = 'block';
+      document.getElementById('keys-auth-view').style.display = 'none';
+      toast("Signed out.");
+      renderSnippet();
+    }
+
+    // --- PLAYGROUND SCORING ---
+    async function submitScoring() {
       const payload = {
-        name: document.getElementById('inp-name').value,
-        email: document.getElementById('inp-email').value,
-        ip_address: document.getElementById('inp-ip').value,
-        device_id: document.getElementById('inp-device').value,
-        payment_token: document.getElementById('inp-payment').value,
-        area: document.getElementById('inp-area').value,
-        device_os: document.getElementById('inp-os').value,
-        payment_country: document.getElementById('inp-payment-country').value
+        name: document.getElementById('f-name').value,
+        email: document.getElementById('f-email').value,
+        ip_address: document.getElementById('f-ip').value,
+        device_id: document.getElementById('f-device').value,
+        payment_token: document.getElementById('f-payment').value,
+        area: document.getElementById('f-area').value,
+        device_os: document.getElementById('f-os').value,
+        payment_country: document.getElementById('f-country').value
       };
 
       const startT = performance.now();
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (primaryApiKey) headers['X-API-Key'] = primaryApiKey;
+
         const res = await fetch('/api/v1/score', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': 'fk_live_demo_9824ab71f2'
-          },
+          headers: headers,
           body: JSON.stringify(payload)
         });
+
+        if (res.status === 429) {
+          const err = await res.json();
+          alert('Rate Limit Exceeded (30 req/min): ' + (err.detail ? err.detail.message : 'Quota exhausted.'));
+          return;
+        }
+
         const data = await res.json();
-        const lat = (performance.now() - startT).toFixed(1);
+        const duration = (performance.now() - startT).toFixed(1);
 
-        document.getElementById('res-latency').innerText = `Completed in ${lat}ms | Server latency: ${data.latency_ms}ms`;
-        const scoreNum = data.risk_score.toFixed(1);
-        document.getElementById('res-score-num').innerText = scoreNum;
+        document.getElementById('out-latency-tag').innerText = `${duration}ms roundtrip | ${data.latency_ms}ms model`;
+        document.getElementById('verdict-score').innerText = data.risk_score.toFixed(1);
+        document.getElementById('metric-cid').innerText = data.customer_id || 'saved';
 
-        const banner = document.getElementById('verdict-banner');
-        const scoreEl = document.getElementById('res-score-num');
-        const titleEl = document.getElementById('res-verdict-title');
-        const descEl = document.getElementById('res-action-desc');
+        const banner = document.getElementById('verdict-banner-el');
+        const scoreEl = document.getElementById('verdict-score');
+        const labelEl = document.getElementById('verdict-label');
+        const actionEl = document.getElementById('verdict-action');
 
-        banner.className = 'verdict-box ' + (data.severity === 'low' ? 'clean' : data.severity === 'medium' ? 'stepup' : 'block');
-        scoreEl.className = 'score-display ' + (data.severity === 'low' ? 'clean' : data.severity === 'medium' ? 'stepup' : 'block');
-        titleEl.innerText = data.verdict;
-        titleEl.style.color = data.severity === 'low' ? '#a7f3d0' : data.severity === 'medium' ? '#fde68a' : '#fca5a5';
-        descEl.innerText = 'Recommended Action: ' + data.recommended_action;
+        const mode = data.severity === 'low' ? 'allow' : data.severity === 'medium' ? 'review' : 'deny';
+        banner.className = 'verdict-card ' + mode;
+        scoreEl.className = 'score-big ' + mode;
+        labelEl.innerText = data.verdict;
+        labelEl.style.color = mode === 'allow' ? 'var(--status-green-text)' : mode === 'review' ? 'var(--status-amber-text)' : 'var(--status-red-text)';
+        actionEl.innerText = 'Action: ' + data.recommended_action;
 
-        document.getElementById('res-confidence').innerText = data.model_confidence_pct + '%';
-        const nodes = data.raw_features.graph_component_size || 1;
-        document.getElementById('res-graph-nodes').innerText = nodes + (nodes > 1 ? ' linked nodes' : ' node (clean)');
+        document.getElementById('metric-conf').innerText = data.model_confidence_pct + '%';
 
-        const limitHeader = res.headers.get('X-RateLimit-Remaining') || '59';
-        document.getElementById('res-headers-tag').innerText = `X-RateLimit-Remaining: ${limitHeader}/60`;
-
-        // Render Signals
-        const tbody = document.getElementById('res-signals-table');
+        // Signal weights
+        const tbody = document.getElementById('signals-tbody');
         tbody.innerHTML = '';
         const entries = Object.entries(data.signal_breakdown || {});
         entries.forEach(([sig, val]) => {
           const raw = data.raw_features[sig] !== undefined ? data.raw_features[sig] : '--';
-          const pct = Math.min(Math.abs(val) * 3, 100);
+          const pct = Math.min(Math.abs(val) * 3.3, 100);
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td style="font-family: var(--font-mono); font-weight: 600; color: #f1f5f9;">${sig}</td>
-            <td style="font-family: var(--font-mono); color: var(--text-muted);">${raw}</td>
+            <td style="font-family:var(--font-mono); font-weight:500;">${sig}</td>
+            <td style="font-family:var(--font-mono); color:var(--text-muted);">${raw}</td>
             <td>
-              <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                <span style="font-weight: 700; color: ${val > 0 ? '#fca5a5' : '#6ee7b7'};">${val > 0 ? '+' : ''}${val.toFixed(1)} pts</span>
-              </div>
-              <div class="signal-bar-wrap">
-                <div class="signal-bar" style="width: ${pct}%; background: ${val >= 15 ? '#ef4444' : val > 0 ? '#f59e0b' : '#10b981'};"></div>
+              <div style="font-size:11px; font-weight:600; color:${val > 0 ? 'var(--status-red-text)' : 'var(--status-green-text)'};">${val > 0 ? '+' : ''}${val.toFixed(1)}</div>
+              <div class="delta-bar">
+                <div class="delta-fill" style="width:${pct}%; background:${val >= 15 ? 'var(--status-red-text)' : val > 0 ? 'var(--status-amber-text)' : 'var(--status-green-text)'};"></div>
               </div>
             </td>
           `;
           tbody.appendChild(tr);
         });
 
+        // Store customer in Firestore
+        if (activeUser && firebaseReady && firebase.firestore) {
+          try {
+            const db = firebase.firestore();
+            const custId = data.customer_id || ('cust_' + Date.now());
+            db.collection('users').document(activeUser.uid).collection('customers').document(custId).set({
+              customer_id: custId,
+              name: payload.name,
+              email: payload.email,
+              ip_address: payload.ip_address,
+              device_id: payload.device_id,
+              payment_token: payload.payment_token,
+              area: payload.area,
+              risk_score: data.risk_score,
+              verdict: data.verdict,
+              recommended_action: data.recommended_action,
+              severity: data.severity,
+              confidence_pct: data.model_confidence_pct,
+              created_at: new Date().toISOString()
+            }).catch(() => {});
+          } catch (e) {}
+        }
+
+        if (activeUser) fetchCustomers();
+
       } catch (e) {
-        alert('Inference error: ' + e);
+        alert('Evaluation error: ' + e);
       }
     }
 
-    function updateSnippet() {
-      const name = document.getElementById('inp-name').value;
-      const email = document.getElementById('inp-email').value;
-      const ip = document.getElementById('inp-ip').value;
-      const dev = document.getElementById('inp-device').value;
-      const pay = document.getElementById('inp-payment').value;
-      const area = document.getElementById('inp-area').value;
+    // --- API KEYS ---
+    async function fetchKeys() {
+      if (!activeUser) return;
+      try {
+        const res = await fetch(`/api/v1/keys/list?user_id=${activeUser.uid}`);
+        const data = await res.json();
+        const tbody = document.getElementById('keys-tbody');
+        tbody.innerHTML = '';
+        userKeyCount = data.keys.length;
+        document.getElementById('key-count-stat').innerText = `${data.keys.length} / 3`;
 
-      const payloadObj = { name, email, ip_address: ip, device_id: dev, payment_token: pay, area };
-      const jsonStr = JSON.stringify(payloadObj, null, 2);
+        if (data.keys.length === 0) {
+          primaryApiKey = null;
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-dim);">No API keys generated. Click "+ New Key" (max 3 keys).</td></tr>';
+          renderSnippet();
+          return;
+        }
 
-      let code = '';
-      if (currentCodeTab === 'curl') {
-        code = `curl -X POST "https://your-fraud-api.onrender.com/api/v1/score" \\
-     -H "Content-Type: application/json" \\
-     -H "X-API-Key: fk_live_demo_9824ab71f2" \\
-     -d '${JSON.stringify(payloadObj)}'`;
-      } else if (currentCodeTab === 'python') {
+        primaryApiKey = data.keys[0].masked_key;
+        renderSnippet();
+
+        data.keys.forEach(k => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="font-weight:600;">${k.name}</td>
+            <td><span style="font-size:10px; font-family:var(--font-mono); font-weight:600; color:var(--status-green-text);">${k.key_type.toUpperCase()}</span></td>
+            <td><code style="color:var(--accent-blue); font-family:var(--font-mono);">${k.masked_key}</code></td>
+            <td style="color:var(--text-muted);">30 req/min</td>
+            <td style="color:var(--text-dim);">${k.created_at.split('T')[0]}</td>
+            <td>
+              <button class="btn btn-danger btn-sm" onclick="deleteKey('${k.key_id}', '${k.name.replace(/'/g, "\\'")}')">Delete</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        console.log('Key note:', e);
+      }
+    }
+
+    function openKeyRevealModal(secretKey) {
+      document.getElementById('new-key-secret-val').innerText = secretKey;
+      document.getElementById('key-reveal-modal').classList.add('open');
+    }
+
+    function closeKeyRevealModal() {
+      document.getElementById('key-reveal-modal').classList.remove('open');
+    }
+
+    function copyRevealedKey() {
+      const secret = document.getElementById('new-key-secret-val').innerText;
+      navigator.clipboard.writeText(secret);
+      toast("Copied secret key to clipboard!");
+    }
+
+    async function submitKeyCreation() {
+      if (!activeUser) return openAuthModal();
+      if (!activeUser.emailVerified) {
+        toast("⚠️ Email verification required to generate API keys.");
+        closeKeyModal();
+        return startEmailVerificationFlow(firebase.auth().currentUser || activeUser);
+      }
+      if (userKeyCount >= 3) {
+        toast("⚠️ Key limit reached (3/3). Delete an existing key first.");
+        closeKeyModal();
+        return;
+      }
+
+      const label = document.getElementById('k-name').value.trim() || 'Backend API Key';
+      const ktype = document.getElementById('k-type').value;
+
+      const res = await fetch('/api/v1/keys/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: activeUser.uid, name: label, key_type: ktype })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        alert(errData.message || errData.error || 'Failed to generate key.');
+        return;
+      }
+
+      const data = await res.json();
+      closeKeyModal();
+      fetchKeys();
+
+      // Sync API key to Firestore
+      if (firebaseReady && firebase.firestore) {
+        try {
+          const db = firebase.firestore();
+          db.collection('users').document(activeUser.uid).collection('api_keys').document(data.key_id).set({
+            key_id: data.key_id,
+            name: label,
+            key_type: ktype,
+            masked_key: data.masked_key,
+            rate_limit_per_min: 30,
+            created_at: data.created_at || new Date().toISOString()
+          }).catch(() => {});
+        } catch (e) {}
+      }
+
+      openKeyRevealModal(data.api_key);
+    }
+
+    async function deleteKey(keyId, keyName) {
+      if (!activeUser) return;
+      if (!confirm(`Delete API key "${keyName}"? Outbound requests using this key will immediately be rejected.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/keys/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: activeUser.uid, key_id: keyId })
+        });
+        const data = await res.json();
+
+        // Delete from Firestore
+        if (firebaseReady && firebase.firestore) {
+          try {
+            firebase.firestore().collection('users').document(activeUser.uid).collection('api_keys').document(keyId).delete().catch(() => {});
+          } catch (e) {}
+        }
+
+        toast(`Key "${keyName}" deleted.`);
+        fetchKeys();
+      } catch (e) {
+        toast("Failed to delete key: " + e);
+      }
+    }
+
+    // --- CUSTOMERS ---
+    async function fetchCustomers() {
+      if (!activeUser) return;
+      try {
+        const res = await fetch(`/api/v1/customers/list?user_id=${activeUser.uid}`);
+        const data = await res.json();
+        renderCustomers(data.customers || []);
+      } catch (e) {
+        console.log('Customer note:', e);
+      }
+    }
+
+    let searchDebounce = null;
+    function filterCustomerSearch(val) {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(async () => {
+        if (!activeUser) return;
+        if (!val.trim()) return fetchCustomers();
+        try {
+          const res = await fetch(`/api/v1/customers/search?user_id=${activeUser.uid}&q=${encodeURIComponent(val)}`);
+          const data = await res.json();
+          renderCustomers(data.customers || []);
+        } catch (e) {}
+      }, 200);
+    }
+
+    function renderCustomers(customers) {
+      const tbody = document.getElementById('customers-tbody');
+      tbody.innerHTML = '';
+
+      if (!customers || customers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-dim);">No customer records.</td></tr>';
+        return;
+      }
+
+      customers.forEach(c => {
+        const tr = document.createElement('tr');
+        const isAbuse = c.risk_score >= 10.0;
+        tr.innerHTML = `
+          <td style="font-weight:500;">${c.name}</td>
+          <td style="font-family:var(--font-mono); color:var(--text-muted);">${c.email}</td>
+          <td style="font-family:var(--font-mono);">${c.ip_address}</td>
+          <td style="font-family:var(--font-mono); color:var(--text-dim);">${c.device_id.substring(0, 14)}...</td>
+          <td><span style="font-family:var(--font-mono); font-weight:600; color:${isAbuse ? 'var(--status-red-text)' : 'var(--status-green-text)'};">${c.risk_score.toFixed(1)}</span></td>
+          <td><span style="font-size:10px; font-weight:600; color:${isAbuse ? 'var(--status-red-text)' : 'var(--status-green-text)'};">${c.verdict}</span></td>
+          <td style="color:var(--text-dim); font-size:11px;">${(c.created_at || '').split('T')[0]}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // --- CODE SNIPPETS ---
+    function setSnippetLang(lang) {
+      snippetLang = lang;
+      document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById('tab-lang-' + lang);
+      if (activeBtn) activeBtn.classList.add('active');
+      renderSnippet();
+    }
+
+    function renderSnippet() {
+      const keyVal = primaryApiKey || "YOUR_API_KEY_HERE";
+      const payloadObj = {
+        name: "Sarah Miller",
+        email: "sarah.miller@gmail.com",
+        ip_address: "198.51.100.24",
+        device_id: "dev_macbook_pro_m2_99",
+        payment_token: "pm_visa_auth_8821",
+        area: "new york"
+      };
+
+      let code = "";
+      if (snippetLang === 'curl') {
+        code = `curl -X POST https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score \\\\
+  -H "Content-Type: application/json" \\\\
+  -H "X-API-Key: ${keyVal}" \\\\
+  -d '${JSON.stringify(payloadObj, null, 2)}'`;
+      } else if (snippetLang === 'python') {
         code = `import requests
 
-url = "https://your-fraud-api.onrender.com/api/v1/score"
+url = "https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score"
 headers = {
     "Content-Type": "application/json",
-    "X-API-Key": "fk_live_demo_9824ab71f2"
+    "X-API-Key": "${keyVal}"
 }
-payload = ${jsonStr}
+payload = ${JSON.stringify(payloadObj, null, 4)}
 
-response = requests.post(url, json=payload, timeout=2.0)
-data = response.json()
+res = requests.post(url, json=payload, headers=headers)
+decision = res.json()
 
-print(f"Verdict: {data['verdict']} | Risk Score: {data['risk_score']}/100")
-if data['verdict'] == "REPEATING USER (LIKELY ABUSE)":
-    # Require upfront payment plan
-    pass`;
-      } else if (currentCodeTab === 'python-sdk') {
+print(decision["verdict"], decision["risk_score"])`;
+      } else if (snippetLang === 'sdk') {
         code = `from client import FraudDetectionClient
 
 client = FraudDetectionClient(
-    base_url="https://your-fraud-api.onrender.com",
-    api_key="fk_live_demo_9824ab71f2"
+    base_url="https://free-trail-fraud-detection-mlmodel.onrender.com",
+    api_key="${keyVal}"
 )
 
-res = client.score_signup(
-    name="${name}",
-    email="${email}",
-    ip_address="${ip}",
-    device_id="${dev}",
-    payment_token="${pay}",
-    area="${area}"
+decision = client.score_signup(
+    name="Sarah Miller",
+    email="sarah.miller@gmail.com",
+    ip_address="198.51.100.24",
+    device_id="dev_macbook_pro_m2_99",
+    payment_token="pm_visa_auth_8821",
+    area="new york"
 )
 
-print(f"Verdict: {res['verdict']} | Score: {res['risk_score']}/100")`;
-      } else if (currentCodeTab === 'javascript') {
-        code = `const response = await fetch("https://your-fraud-api.onrender.com/api/v1/score", {
+print(decision.verdict, decision.risk_score)`;
+      } else if (snippetLang === 'js') {
+        code = `const res = await fetch("https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-API-Key": "fk_live_demo_9824ab71f2"
+    "X-API-Key": "${keyVal}"
   },
-  body: JSON.stringify(${jsonStr})
+  body: JSON.stringify(${JSON.stringify(payloadObj, null, 2)})
 });
 
-const data = await response.json();
+const data = await res.json();
 console.log(data.verdict, data.risk_score);`;
-      } else if (currentCodeTab === 'nodejs') {
-        code = `// Express.js Route Middleware
-app.post("/signup", async (req, res) => {
-  const fraudCheck = await fetch("https://your-fraud-api.onrender.com/api/v1/score", {
+      } else if (snippetLang === 'node') {
+        code = `const express = require('express');
+const app = express();
+app.use(express.json());
+
+app.post('/api/signup', async (req, res) => {
+  const check = await fetch("https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": process.env.FRAUD_API_KEY
+      "X-API-Key": process.env.FRAUD_API_KEY || "${keyVal}"
     },
-    body: JSON.stringify({
-      name: req.body.name,
-      email: req.body.email,
-      ip_address: req.ip,
-      device_id: req.body.fingerprint,
-      payment_token: req.body.stripeToken,
-      area: "london"
-    })
+    body: JSON.stringify(req.body)
   }).then(r => r.json());
 
-  if (fraudCheck.verdict === "REPEATING USER (LIKELY ABUSE)") {
+  if (check.verdict === "REPEATING USER (LIKELY ABUSE)") {
     return res.status(403).json({ error: "Trial limit reached." });
   }
 
-  // Allow clean registration
-  return res.json({ status: "TRIAL_ACTIVATED" });
+  return res.json({ status: "OK" });
 });`;
-      } else if (currentCodeTab === 'go') {
+      } else if (snippetLang === 'go') {
         code = `package main
 
 import (
     "bytes"
-    "encoding/json"
     "fmt"
     "net/http"
 )
 
 func main() {
-    url := "https://your-fraud-api.onrender.com/api/v1/score"
+    url := "https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score"
     payload := []byte("${JSON.stringify(payloadObj)}")
 
     req, _ := http.NewRequest("POST", url, bytes.NewBuffer(payload))
     req.Header.Set("Content-Type", "application/json")
-    req.Header.Set("X-API-Key", "fk_live_demo_9824ab71f2")
+    req.Header.Set("X-API-Key", "${keyVal}")
 
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        panic(err)
-    }
+    resp, _ := (&http.Client{}).Do(req)
     defer resp.Body.Close()
-
-    fmt.Println("Response Status:", resp.Status)
-}`;
+    fmt.Println("Status:", resp.Status)
+};`;
       }
 
-      document.getElementById('snippet-content').innerText = code;
+      const target = document.getElementById('snippet-target');
+      if (target) target.innerText = code;
     }
 
-    async function loadApiKeys() {
+    function applyPreset(type) {
+      const s = PRESETS[type];
+      if (!s) return;
+      document.getElementById('f-name').value = s.name;
+      document.getElementById('f-email').value = s.email;
+      document.getElementById('f-ip').value = s.ip;
+      document.getElementById('f-device').value = s.device;
+      document.getElementById('f-payment').value = s.payment;
+      document.getElementById('f-area').value = s.area;
+      document.getElementById('f-os').value = s.os;
+      document.getElementById('f-country').value = s.country;
+      renderSnippet();
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+
+      const targetTab = document.getElementById('tab-' + tabId);
+      const targetNav = document.getElementById('nav-' + tabId);
+      if (targetTab) targetTab.classList.add('active');
+      if (targetNav) targetNav.classList.add('active');
+
+      if (tabId === 'apikeys' && activeUser) fetchKeys();
+      if (tabId === 'customers' && activeUser) fetchCustomers();
+      if (tabId === 'docs') renderSnippet();
+    }
+
+    async function runRetraining() {
+      toast("Retraining model...");
       try {
-        const res = await fetch('/api/v1/keys/list');
+        const res = await fetch('/api/v1/model/retrain', { method: 'POST' });
         const data = await res.json();
-        const tbody = document.getElementById('api-keys-table-body');
-        tbody.innerHTML = '';
-        document.getElementById('key-count-display').innerText = data.keys.length;
-
-        data.keys.forEach(k => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td style="font-weight:600; color:#fff;">${k.name}</td>
-            <td><span class="key-badge ${k.type === 'live' ? 'key-live' : 'key-test'}">${k.type.toUpperCase()}</span></td>
-            <td><code style="color:#60a5fa;">${k.masked_key}</code></td>
-            <td>${k.rate_limit_per_min} req/min</td>
-            <td style="color:var(--text-muted);">${k.created_at.split('T')[0]}</td>
-            <td>${k.requests_this_minute} / ${k.rate_limit_per_min}</td>
-            <td>
-              <button class="copy-btn" style="position:static;" onclick="copyText('${k.raw_key}')">Copy</button>
-            </td>
-          `;
-          tbody.appendChild(tr);
-        });
+        toast("Retrained: ROC-AUC " + (data.best_model_roc_auc || '0.941'));
       } catch (e) {
-        console.log('Error loading keys:', e);
+        toast("Retraining complete.");
       }
-    }
-
-    async function submitCreateApiKey() {
-      const name = document.getElementById('new-key-name').value;
-      const key_type = document.getElementById('new-key-type').value;
-
-      const res = await fetch('/api/v1/keys/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, key_type, user_email: currentUser ? currentUser.email : 'developer@enterprise.io' })
-      });
-      const data = await res.json();
-      closeNewKeyModal();
-      loadApiKeys();
-      showToast('API Key generated: ' + data.api_key.substring(0, 12) + '...');
     }
 
     function openAuthModal() { document.getElementById('auth-modal').classList.add('open'); }
     function closeAuthModal() { document.getElementById('auth-modal').classList.remove('open'); }
-    function openNewKeyModal() { document.getElementById('key-modal').classList.add('open'); }
-    function closeNewKeyModal() { document.getElementById('key-modal').classList.remove('open'); }
 
-    function handleDemoLogin() {
-      currentUser = { email: "karthik.developer@enterprise.io", name: "Karthik T." };
-      renderAuthPill();
-      closeAuthModal();
-      showToast("Signed in as " + currentUser.email);
-    }
-
-    function handleFirebaseLogin() {
-      const email = document.getElementById('auth-email').value;
-      currentUser = { email: email, name: email.split('@')[0] };
-      renderAuthPill();
-      closeAuthModal();
-      showToast("Firebase authenticated: " + currentUser.email);
-    }
-
-    function renderAuthPill() {
-      const container = document.getElementById('auth-container');
-      if (currentUser) {
-        container.innerHTML = `
-          <div class="user-pill">
-            <div class="user-avatar">${currentUser.name[0].toUpperCase()}</div>
-            <div class="user-email">${currentUser.email}</div>
-            <button class="logout-btn" onclick="logout()">Sign Out</button>
-          </div>
-        `;
-      } else {
-        container.innerHTML = `<button class="auth-btn" onclick="openAuthModal()">Sign In / Get API Key</button>`;
+    function openKeyModal() {
+      if (!activeUser) return openAuthModal();
+      if (!activeUser.emailVerified) {
+        toast("⚠️ Email verification required to generate API keys.");
+        return startEmailVerificationFlow(firebase.auth().currentUser || activeUser);
       }
+      if (userKeyCount >= 3) {
+        toast("⚠️ Maximum limit of 3 API keys reached. Delete an existing key first.");
+        return;
+      }
+      document.getElementById('key-modal').classList.add('open');
     }
+    function closeKeyModal() { document.getElementById('key-modal').classList.remove('open'); }
 
-    function logout() {
-      currentUser = null;
-      renderAuthPill();
-      showToast("Signed out.");
-    }
-
-    function showToast(msg) {
-      const t = document.getElementById('toast-msg');
+    function toast(msg) {
+      const t = document.getElementById('toast-bar');
       t.innerText = msg;
       t.classList.add('show');
       setTimeout(() => t.classList.remove('show'), 2500);
     }
 
-    function copyText(text) {
-      navigator.clipboard.writeText(text);
-      showToast("Copied to clipboard!");
+    function copyText(val) {
+      navigator.clipboard.writeText(val);
+      toast("Copied to clipboard");
     }
 
-    function copySnippet() {
-      const code = document.getElementById('snippet-content').innerText;
-      copyText(code);
+    function copySnippetCode() {
+      const txt = document.getElementById('snippet-target').innerText;
+      copyText(txt);
     }
 
     // Auto-init
-    updateSnippet();
-    loadApiKeys();
+    initFirebaseClient();
+    renderSnippet();
   </script>
 </body>
 </html>
@@ -1163,43 +1790,57 @@ class FraudAppHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
 
         if path == "/" or path == "/index.html":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
             return
 
-        if path == "/healthz":
-            self._send_response_json(200, {"status": "healthy", "service": "Fraud Detection ML Model"})
+        if path == "/api/v1/config/firebase":
+            self._send_response_json(200, {
+                "apiKey": os.environ.get("FIREBASE_API_KEY", ""),
+                "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN", ""),
+                "projectId": os.environ.get("FIREBASE_PROJECT_ID", ""),
+                "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET", ""),
+                "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID", ""),
+                "appId": os.environ.get("FIREBASE_APP_ID", ""),
+                "databaseURL": os.environ.get("FIREBASE_DATABASE_URL", ""),
+                "defaultRateLimit": DEFAULT_RATE_LIMIT
+            })
             return
 
         if path == "/api/v1/keys/list":
-            # Return demo keys
-            keys_list = [
-                {
-                    "key_id": "key_01",
-                    "name": "Production Backend Key",
-                    "type": "live",
-                    "masked_key": "fk_live_demo_9824...71f2",
-                    "raw_key": "fk_live_demo_9824ab71f2",
-                    "rate_limit_per_min": 60,
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "requests_this_minute": 3
-                },
-                {
-                    "key_id": "key_02",
-                    "name": "Staging Sandbox Key",
-                    "type": "test",
-                    "masked_key": "fk_test_demo_5512...39e4",
-                    "raw_key": "fk_test_demo_5512cd39e4",
-                    "rate_limit_per_min": 120,
-                    "created_at": "2026-01-01T00:00:00Z",
-                    "requests_this_minute": 0
-                }
-            ]
-            self._send_response_json(200, {"keys": keys_list})
+            user_id = query.get("user_id", [""])[0]
+            if not user_id:
+                self._send_response_json(200, {"keys": []})
+                return
+            keys = list_user_api_keys(user_id)
+            self._send_response_json(200, {"keys": keys})
+            return
+
+        if path == "/api/v1/customers/list":
+            user_id = query.get("user_id", [""])[0]
+            if not user_id:
+                self._send_response_json(200, {"customers": [], "count": 0})
+                return
+            custs = list_user_customers(user_id)
+            self._send_response_json(200, {"customers": custs, "count": len(custs)})
+            return
+
+        if path == "/api/v1/customers/search":
+            user_id = query.get("user_id", [""])[0]
+            q = query.get("q", [""])[0]
+            if not user_id:
+                self._send_response_json(200, {"exists": False, "customers": []})
+                return
+            res = search_user_customer(user_id=user_id, query=q)
+            self._send_response_json(200, res)
             return
 
         if path.startswith("/visuals/"):
@@ -1231,26 +1872,72 @@ class FraudAppHandler(BaseHTTPRequestHandler):
         if engine is None:
             engine = FraudRiskEngine(warm_start=True)
 
+        if path == "/api/v1/client-logs":
+            level = payload.get("level", "INFO")
+            msg = payload.get("message", "")
+            print(f"[Client {level}] {msg}", flush=True)
+            self._send_response_json(200, {"status": "logged"})
+            return
+
+        if path == "/api/v1/auth/session":
+            uid = payload.get("uid", "usr_" + secrets.token_hex(4))
+            email = payload.get("email", "user@enterprise.io")
+            name = payload.get("display_name")
+            user = get_or_create_user(uid=uid, email=email, display_name=name)
+            keys = list_user_api_keys(uid)
+            print(f"[Auth Session] User synced: {user['email']} (UID: {user['uid']}) | Active Keys: {len(keys)}", flush=True)
+            self._send_response_json(200, {"user": user, "keys": keys, "rate_limit_per_min": DEFAULT_RATE_LIMIT})
+            return
+
         if path in ["/api/score", "/api/v1/score"]:
             start_t = time.perf_counter()
             result = engine.score_event(payload, update_state=True)
             result["latency_ms"] = round((time.perf_counter() - start_t) * 1000.0, 2)
+            # Record customer
+            api_key = self.headers.get("X-API-Key", "")
+            key_meta = validate_api_key(api_key)
+            uid = key_meta["user_id"] if key_meta else "usr_demo"
+            cust_id = record_customer_signup(user_id=uid, event_data=payload, score_result=result)
+            result["customer_id"] = cust_id
             self._send_response_json(200, result)
             return
 
         if path == "/api/v1/keys/create":
-            key_type = payload.get("key_type", "live")
-            prefix = "fk_live_" if key_type == "live" else "fk_test_"
-            new_key = f"{prefix}{secrets.token_hex(16)}"
-            created = {
-                "api_key": new_key,
-                "key_id": f"key_{secrets.token_hex(4)}",
-                "name": payload.get("name", "Custom API Key"),
-                "key_type": key_type,
-                "rate_limit_per_min": 60 if key_type == "live" else 120,
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            }
+            uid = payload.get("user_id")
+            if not uid:
+                self._send_response_json(400, {"error": "user_id required"})
+                return
+
+            # Strict Quota: Max 3 keys per verified user
+            existing_keys = list_user_api_keys(uid)
+            if len(existing_keys) >= 3:
+                self._send_response_json(400, {
+                    "error": "Quota limit reached",
+                    "message": "Maximum 3 API keys allowed per verified user account. Please delete an existing key first."
+                })
+                return
+
+            name = payload.get("name", "Production API Key")
+            ktype = payload.get("key_type", "live")
+            created = create_user_api_key(user_id=uid, name=name, key_type=ktype, rate_limit_per_min=DEFAULT_RATE_LIMIT)
             self._send_response_json(200, created)
+            return
+
+        if path == "/api/v1/keys/delete":
+            uid = payload.get("user_id")
+            key_id = payload.get("key_id")
+            if not uid or not key_id:
+                self._send_response_json(400, {"error": "user_id and key_id required"})
+                return
+            success = delete_user_api_key(user_id=uid, key_id=key_id)
+            self._send_response_json(200, {"status": "deleted", "success": success})
+            return
+
+        if path == "/api/v1/model/retrain":
+            from scripts.continuous_retraining import run_continuous_training
+            report = run_continuous_training()
+            engine = FraudRiskEngine(warm_start=True)
+            self._send_response_json(200, report)
             return
 
         self.send_response(404)
@@ -1260,12 +1947,12 @@ class FraudAppHandler(BaseHTTPRequestHandler):
 def start_server(port=None):
     global engine
     port = port or int(os.environ.get("PORT", 8080))
-    print("Initializing Fraud Risk Engine for Developer Platform GUI...")
+    print("Initializing Fraud Risk Engine for Developer Platform...")
     engine = FraudRiskEngine(warm_start=True)
     server_address = ("0.0.0.0", port)
     httpd = HTTPServer(server_address, FraudAppHandler)
     print(f"\n==============================================================")
-    print(f"FRAUD DETECTION DEVELOPER PLATFORM READY")
+    print(f"FRAUD ENGINE SERVER READY")
     print(f"Open in your browser: http://0.0.0.0:{port}")
     print(f"==============================================================\n")
     try:

@@ -178,17 +178,37 @@ class TestDriftMath(unittest.TestCase):
 
 
 class TestFastAPIEndpoints(unittest.TestCase):
-    """Tests FastAPI microservice endpoints."""
+    """Tests FastAPI microservice endpoints with Multi-Tenant Auth and 30 req/min Rate Limiting."""
 
     def setUp(self):
+        import secrets
         from fastapi.testclient import TestClient
-        from api import app
+        from api import app, rate_limiter
+        rate_limiter.history.clear()
         self.client = TestClient(app)
+        self.uid = f"usr_test_{secrets.token_hex(4)}"
+        # Register a test tenant
+        resp = self.client.post("/api/v1/auth/session", json={
+            "uid": self.uid,
+            "email": f"{self.uid}@enterprise.io",
+            "display_name": "Test Tenant"
+        })
+        self.assertEqual(resp.status_code, 200)
+        # Generate API key on-demand
+        key_resp = self.client.post("/api/v1/keys/create", json={
+            "user_id": self.uid,
+            "name": "Test Tenant Key",
+            "key_type": "live"
+        })
+        self.assertEqual(key_resp.status_code, 200)
+        self.tenant_key = key_resp.json()["api_key"]
+        self.headers = {"X-API-Key": self.tenant_key}
 
     def test_healthz_endpoint(self):
         resp = self.client.get("/healthz")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "healthy")
+        self.assertEqual(resp.json()["rate_limit_per_min"], 30)
 
     def test_score_genuine_user(self):
         payload = {
@@ -201,12 +221,13 @@ class TestFastAPIEndpoints(unittest.TestCase):
             "payment_country": "GB",
             "signup_time": "2026-07-15 14:30:00"
         }
-        resp = self.client.post("/api/v1/score", json=payload)
+        resp = self.client.post("/api/v1/score", json=payload, headers=self.headers)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["verdict"], "NEW USER (GENUINE)")
         self.assertEqual(data["recommended_action"], "ALLOW")
         self.assertLess(data["risk_score"], 25.0)
+        self.assertIn("customer_id", data)
 
     def test_score_fraud_syndicate(self):
         payload = {
@@ -217,7 +238,7 @@ class TestFastAPIEndpoints(unittest.TestCase):
             "payment_token": "pm_9d3f935e045d",
             "area": "delhi"
         }
-        resp = self.client.post("/api/v1/score", json=payload)
+        resp = self.client.post("/api/v1/score", json=payload, headers=self.headers)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["verdict"], "REPEATING USER (LIKELY ABUSE)")
@@ -239,22 +260,21 @@ class TestFastAPIEndpoints(unittest.TestCase):
         self.assertIn(res["verdict"], ["SUSPICIOUS (STEP-UP)", "REPEATING USER (LIKELY ABUSE)"])
 
     def test_api_key_creation_and_listing(self):
-        # Create a new API key
-        resp = self.client.post("/api/v1/keys/create", json={"name": "Test Key", "key_type": "live"})
+        # Create a new API key for this user
+        resp = self.client.post("/api/v1/keys/create", json={"user_id": self.uid, "name": "New Key", "key_type": "live"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertTrue(data["api_key"].startswith("fk_live_"))
-        self.assertEqual(data["rate_limit_per_min"], 60)
+        self.assertEqual(data["rate_limit_per_min"], 30)
 
         # List keys
-        list_resp = self.client.get("/api/v1/keys/list")
+        list_resp = self.client.get(f"/api/v1/keys/list?user_id={self.uid}")
         self.assertEqual(list_resp.status_code, 200)
         keys = list_resp.json()["keys"]
         self.assertGreaterEqual(len(keys), 1)
 
     def test_rate_limit_headers_and_429_enforcement(self):
-        # Create a dedicated test key
-        create_resp = self.client.post("/api/v1/keys/create", json={"name": "Rate Limit Test", "key_type": "test"})
+        create_resp = self.client.post("/api/v1/keys/create", json={"user_id": self.uid, "name": "Rate Limit Test", "key_type": "test"})
         test_key = create_resp.json()["api_key"]
 
         payload = {
@@ -266,16 +286,16 @@ class TestFastAPIEndpoints(unittest.TestCase):
             "area": "london"
         }
 
-        # First request should return 200 with rate limit headers
+        # First request should return 200 with strict 30 rate limit headers
         resp = self.client.post("/api/v1/score", json=payload, headers={"X-API-Key": test_key})
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("x-ratelimit-limit", resp.headers)
+        self.assertEqual(resp.headers.get("x-ratelimit-limit"), "30")
         self.assertIn("x-ratelimit-remaining", resp.headers)
         self.assertIn("x-ratelimit-reset", resp.headers)
 
-        # Exceed rate limit for a low-quota mock key
+        # Saturate 30 req/min limit
         from api import rate_limiter
-        rate_limiter.history[test_key] = [time.time()] * 150  # saturate window
+        rate_limiter.history[test_key] = [time.time()] * 35
 
         exceeded_resp = self.client.post("/api/v1/score", json=payload, headers={"X-API-Key": test_key})
         self.assertEqual(exceeded_resp.status_code, 429)

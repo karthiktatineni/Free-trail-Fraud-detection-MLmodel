@@ -1,0 +1,8 @@
+{
+  "status": "success",
+  "retrained_at": "2026-08-28T09:51:37Z",
+  "total_training_samples": 6489,
+  "new_db_samples_integrated": 6,
+  "model_architecture": "XGBoost Continuous Calibrated",
+  "features_used": 20
+}

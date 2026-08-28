@@ -1,4 +1,4 @@
-# Python
+# Python Bytecode & Environments
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,24 +17,50 @@ lib/
 lib64/
 parts/
 sdist/
-var/
 wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
-# IDEs
+# Secrets, API Keys & Environment Files (STRICT PROTECTION)
+.env
+.env.*
+*.env
+.env.local
+.env.development
+.env.production
+serviceAccountKey.json
+firebase-adminsdk*.json
+credentials.json
+client_secret*.json
+*.pem
+*.key
+*.p12
+
+# SQLite & Persistent Local Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/*.db
+data/fraud_saas.db*
+mlflow.db
+mlruns/
+
+# IDE & Editor Settings
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# MLflow & Testing
-mlflow.db
-mlruns/
+# Testing, Logs & Cache
 .pytest_cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS
+# OS Artifacts
 .DS_Store
 Thumbs.db
-
