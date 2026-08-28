@@ -1,5 +1,5 @@
 {
-  "model_name": "XGBoost",
+  "model_name": "Logistic Regression",
   "feature_columns": [
     "payment_reuse_count",
     "ip_reuse_count",
@@ -23,9 +23,35 @@
     "device_os_freq"
   ],
   "target_column": "is_repeat_user",
-  "train_size": 7415,
-  "test_size": 1854,
-  "cv_recall_mean": 0.9304777628307039,
-  "cv_f1_mean": 0.9621396219458191,
-  "cv_roc_auc_mean": 0.9725348420993217
+  "train_size": 6483,
+  "val_size": 1389,
+  "test_size": 1390,
+  "split_ratio": "70/15/15",
+  "cost_fn": 5.0,
+  "cost_fp": 1.0,
+  "cv_recall_mean": 0.9265423855563271,
+  "cv_f1_mean": 0.9612479521150403,
+  "cv_roc_auc_mean": 0.9739938694925072,
+  "val_expected_cost": 0.12311015118790497,
+  "val_optimal_threshold": 0.19,
+  "optuna_best_params": {
+    "n_estimators": 342,
+    "max_depth": 5,
+    "learning_rate": 0.020956882425001443,
+    "subsample": 0.7029437637214848,
+    "colsample_bytree": 0.933041298616796,
+    "reg_alpha": 0.005188926394207972,
+    "reg_lambda": 0.0013364937151496474
+  },
+  "significance_test": {
+    "model_a": "Logistic Regression",
+    "model_b": "XGBoost (Tuned)",
+    "mean_cost_diff": -0.00026421886249100145,
+    "ci_95": [
+      -0.0014578833693304695,
+      0.0
+    ],
+    "p_value_a_worse": 0.759,
+    "significant_at_005": false
+  }
 }

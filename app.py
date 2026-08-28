@@ -947,15 +947,16 @@ class FraudAppHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
-def start_server(port=8080):
+def start_server(port=None):
     global engine
+    port = port or int(os.environ.get("PORT", 8080))
     print("Initializing Fraud Risk Engine for Web GUI...")
     engine = FraudRiskEngine(warm_start=True)
-    server_address = ("127.0.0.1", port)
+    server_address = ("0.0.0.0", port)
     httpd = HTTPServer(server_address, FraudAppHandler)
     print(f"\n==============================================================")
     print(f"FRAUD DETECTION GUI READY")
-    print(f"Open in your browser: http://localhost:{port}")
+    print(f"Open in your browser: http://0.0.0.0:{port}")
     print(f"==============================================================\n")
     try:
         httpd.serve_forever()
@@ -965,4 +966,4 @@ def start_server(port=8080):
 
 
 if __name__ == "__main__":
-    start_server(8080)
+    start_server()

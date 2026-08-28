@@ -29,6 +29,12 @@ wheels/
 *.swp
 *.swo
 
+# MLflow & Testing
+mlflow.db
+mlruns/
+.pytest_cache/
+
 # OS
 .DS_Store
 Thumbs.db
+

@@ -245,11 +245,11 @@ def create_dashboard_summary():
     ax.add_patch(b1_pill)
     ax.text(0.185, 0.815, "BAND 1: GENUINE", fontsize=10.5, fontweight='bold', color='#ffffff', ha='center', va='center')
     
-    ax.text(0.06, 0.74, "Score Range: 0.0 to 3.3", fontsize=9.5, fontweight='bold', color='#a7f3d0', va='top')
+    ax.text(0.06, 0.74, "Score Range: 0.0 to 5.5", fontsize=9.5, fontweight='bold', color='#a7f3d0', va='top')
     ax.text(0.06, 0.68, "• Action: ALLOW Instant Access", fontsize=9, color='#ffffff', fontweight='bold', va='top')
     ax.text(0.06, 0.63, "• Friction: Zero Friction", fontsize=8.5, color='#cbd5e1', va='top')
     ax.text(0.06, 0.58, "• Persona: Organic single human signups", fontsize=8.5, color='#cbd5e1', va='top')
-    ax.text(0.06, 0.53, "• Volume: ~70.1% of all traffic", fontsize=8.5, color='#cbd5e1', va='top')
+    ax.text(0.06, 0.53, "• Volume: ~70.2% of all traffic", fontsize=8.5, color='#cbd5e1', va='top')
     
     ax.text(0.06, 0.47, "Example: David Smith (Score: 0.5/100)", fontsize=8.5, color='#6ee7b7', fontweight='bold', va='top')
     
@@ -262,13 +262,13 @@ def create_dashboard_summary():
     ax.add_patch(b2_pill)
     ax.text(0.50, 0.815, "BAND 2: GREY ZONE", fontsize=10.5, fontweight='bold', color='#ffffff', ha='center', va='center')
     
-    ax.text(0.375, 0.74, "Score Range: 3.3 to 6.0", fontsize=9.5, fontweight='bold', color='#fde68a', va='top')
+    ax.text(0.375, 0.74, "Score Range: 5.5 to 10.0", fontsize=9.5, fontweight='bold', color='#fde68a', va='top')
     ax.text(0.375, 0.68, "• Action: STEP-UP VERIFICATION", fontsize=9, color='#ffffff', fontweight='bold', va='top')
     ax.text(0.375, 0.63, "• Friction: SMS OTP / CAPTCHA / $1 Auth", fontsize=8.5, color='#cbd5e1', va='top')
     ax.text(0.375, 0.58, "• Persona: Foreign travel / Shared NAT", fontsize=8.5, color='#cbd5e1', va='top')
-    ax.text(0.375, 0.53, "• Volume: ~4.5% of edge-case traffic", fontsize=8.5, color='#cbd5e1', va='top')
+    ax.text(0.375, 0.53, "• Volume: ~3.1% of edge-case traffic", fontsize=8.5, color='#cbd5e1', va='top')
     
-    ax.text(0.375, 0.47, "Example: Alex Johnson (Score: 4.2/100)", fontsize=8.5, color='#fbbf24', fontweight='bold', va='top')
+    ax.text(0.375, 0.47, "Example: Alex Johnson (Score: 7.2/100)", fontsize=8.5, color='#fbbf24', fontweight='bold', va='top')
     
     # ------------------ BAND 3: REPEAT ABUSE ------------------
     b3 = patches.FancyBboxPatch((0.67, 0.44), 0.29, 0.42, boxstyle="round,pad=0.02", fc="#7f1d1d", ec="#ef4444", lw=2)
@@ -279,11 +279,11 @@ def create_dashboard_summary():
     ax.add_patch(b3_pill)
     ax.text(0.815, 0.815, "BAND 3: REPEAT ABUSE", fontsize=10.5, fontweight='bold', color='#ffffff', ha='center', va='center')
     
-    ax.text(0.69, 0.74, "Score Range: 6.0 to 100.0", fontsize=9.5, fontweight='bold', color='#fecaca', va='top')
+    ax.text(0.69, 0.74, "Score Range: 10.0 to 100.0", fontsize=9.5, fontweight='bold', color='#fecaca', va='top')
     ax.text(0.69, 0.68, "• Action: HARD BLOCK TRIAL ACCESS", fontsize=9, color='#ffffff', fontweight='bold', va='top')
     ax.text(0.69, 0.63, "• Friction: Require Paid Plan Upfront", fontsize=8.5, color='#cbd5e1', va='top')
     ax.text(0.69, 0.58, "• Persona: Multi-accounting syndicates", fontsize=8.5, color='#cbd5e1', va='top')
-    ax.text(0.69, 0.53, "• Volume: ~29.9% of abusive traffic", fontsize=8.5, color='#cbd5e1', va='top')
+    ax.text(0.69, 0.53, "• Volume: ~26.7% of abusive traffic", fontsize=8.5, color='#cbd5e1', va='top')
     
     ax.text(0.69, 0.47, "Example: Sanjay Nair (Score: 99.9/100)", fontsize=8.5, color='#fca5a5', fontweight='bold', va='top')
     
@@ -291,9 +291,9 @@ def create_dashboard_summary():
     summary_box = patches.FancyBboxPatch((0.04, 0.05), 0.92, 0.33, boxstyle="round,pad=0.02", fc="#1e293b", ec="#334155", lw=1.5)
     ax.add_patch(summary_box)
     ax.text(0.07, 0.33, "CORE ARCHITECTURAL PILLARS & PRODUCTION BENCHMARKS", fontsize=11, fontweight='bold', color='#38bdf8', va='top')
-    ax.text(0.07, 0.26, "• Incremental Union-Find Graph: Disjoint-set linkage captures syndicate clusters (r=0.746), surviving email/IP rotation.", fontsize=9, color='#e2e8f0', va='top')
-    ax.text(0.07, 0.19, "• 10-Fold CV Model Selection: XGBoost selected across 7 models (0.9305 CV Recall, 0.9621 F1-Score, 0.9725 ROC-AUC).", fontsize=9, color='#e2e8f0', va='top')
-    ax.text(0.07, 0.12, "• Precision SLA Threshold Tuning: Optimal T=0.060 achieves 95.1% Abuse Recall with 78.8% Precision in <20ms latency.", fontsize=9, color='#e2e8f0', va='top')
+    ax.text(0.07, 0.26, "• Incremental Union-Find Graph: Disjoint-set linkage captures syndicate clusters (r=0.744), surviving email/IP rotation.", fontsize=9, color='#e2e8f0', va='top')
+    ax.text(0.07, 0.19, "• Cost-Based Selection: Model chosen by minimizing expected business cost E[cost] = FN*5.0 + FP*1.0 across 10-fold CV.", fontsize=9, color='#e2e8f0', va='top')
+    ax.text(0.07, 0.12, "• Calibrated Test Set: Threshold T=0.100 achieves 93.8% Abuse Recall (95% CI: [91.2%, 96.0%]) and 0.973 ROC-AUC in <15ms.", fontsize=9, color='#e2e8f0', va='top')
     
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, "live_scoring_dashboard_summary.png"), dpi=300, facecolor=fig.get_facecolor())

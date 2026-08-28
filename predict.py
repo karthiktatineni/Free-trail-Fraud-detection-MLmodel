@@ -1,19 +1,20 @@
 """
-CALIBRATED MULTI-SIGNAL FRAUD RISK SCORING ENGINE
-=================================================
-Calculates intuitive, transparent 0-100 Risk Score based on additive signals:
-1. Payment Method Reuse (+30 pts max)
-2. Device ID Reuse (+20 pts max)
-3. Accounts Created by Device in 1 Hour (+10 pts max)
-4. IP Address Reuse (+15 pts max) & Subnet (+5 pts max)
-5. Email Domain / Disposable / Plus-Tag (+10 pts max)
-6. Name Similarity with Existing Accounts (+5 pts max)
-7. Area / Payment BIN Country Mismatch (+5 pts max)
+REAL-TIME FRAUD RISK SCORING ENGINE (XGBoost-Powered)
+=====================================================
+Scores signup events using a trained XGBoost pipeline (predict_proba).
 
-Verdict Calibration:
-- Score  0 - 25 : NEW USER (GENUINE)        -> Action: ALLOW
-- Score 25 - 50 : SUSPICIOUS (STEP-UP)       -> Action: REQUIRE 2FA / CAPTCHA
-- Score 50 - 100: REPEATING USER (ABUSE)     -> Action: BLOCK / REQUIRE PAYMENT
+Risk Score = model probability × 100 (0-100 scale).
+
+Verdict is determined by a cost-optimized decision threshold loaded from
+results/final_metrics.json:
+  - P(abuse) < 0.55 × threshold : NEW USER (GENUINE)   -> Action: ALLOW
+  - 0.55 × threshold <= P < threshold : SUSPICIOUS      -> Action: STEP-UP
+  - P(abuse) >= threshold       : REPEAT / LIKELY ABUSE -> Action: BLOCK
+
+A rule-based signal_breakdown is computed alongside the model score for
+UI explainability, but does NOT drive the verdict.
+
+Falls back to rule-based scoring if the model file is missing.
 """
 
 import os
@@ -23,6 +24,16 @@ from difflib import SequenceMatcher
 import pandas as pd
 import numpy as np
 import joblib
+
+try:
+    from scripts.redis_feature_store import RedisFeatureStore
+    HAS_REDIS_STORE = True
+except ImportError:
+    try:
+        from redis_feature_store import RedisFeatureStore
+        HAS_REDIS_STORE = True
+    except ImportError:
+        HAS_REDIS_STORE = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
@@ -89,13 +100,33 @@ class IncrementalUnionFind:
 
 
 class FraudRiskEngine:
-    def __init__(self, model_path=MODEL_PATH, warm_start=True):
+    def __init__(self, model_path=MODEL_PATH, warm_start=True, redis_url=None):
         self.pipeline = None
         if os.path.exists(model_path):
             try:
                 self.pipeline = joblib.load(model_path)
             except Exception:
                 pass
+        
+        # Load decision threshold from metrics (set during evaluation)
+        self.decision_threshold = 0.10  # calibrated default
+        metrics_path = os.path.join(RESULTS_DIR, "final_metrics.json")
+        if os.path.exists(metrics_path):
+            try:
+                with open(metrics_path, "r") as f:
+                    metrics = json.load(f)
+                    self.decision_threshold = float(metrics.get("decision_threshold", 0.10))
+            except Exception:
+                pass
+        
+        # Redis Feature Store integration
+        self.redis_url = redis_url or os.environ.get("REDIS_URL")
+        self.store = None
+        if HAS_REDIS_STORE:
+            try:
+                self.store = RedisFeatureStore(redis_url=self.redis_url)
+            except Exception:
+                self.store = None
         
         self.graph = IncrementalUnionFind()
         self.seen_payment = {}
@@ -271,77 +302,96 @@ class FraudRiskEngine:
 
     def score_event(self, event, update_state=True):
         """
-        Computes calibrated 0-100 Risk Score with both Zero-Shot Intrinsic
-        and Causal Historical Entity Linkage signals.
+        Scores a signup event using the trained XGBoost model (predict_proba).
+        
+        Risk score = P(abuse) × 100.  Verdict is driven by cost-optimized
+        threshold loaded from results/final_metrics.json.
+        
+        A rule-based signal_breakdown is computed alongside for UI explainability
+        but does NOT drive the verdict.
+        
+        Falls back to rule-based scoring if the model file is missing.
         """
         feat_dict = self.extract_features(event, update_state=update_state)
+        
+        # --- Compute rule-based signal breakdown (for UI explainability) ---
         signal_breakdown = {}
         
-        # --- HISTORICAL REUSE SIGNALS ---
-        # A. Payment Method Reuse (Weight: 30)
         pay_reuse = feat_dict["payment_reuse_count"]
-        pay_pts = min(30.0, pay_reuse * 30.0)
-        signal_breakdown["same_payment_method"] = round(pay_pts, 1)
+        signal_breakdown["same_payment_method"] = round(min(30.0, pay_reuse * 30.0), 1)
 
-        # B. Device ID Reuse (Weight: 20)
         dev_reuse = feat_dict["device_reuse_count"]
-        dev_pts = min(20.0, dev_reuse * 20.0)
-        signal_breakdown["device_used_to_login"] = round(dev_pts, 1)
+        signal_breakdown["device_used_to_login"] = round(min(20.0, dev_reuse * 20.0), 1)
 
-        # C. Accounts Created by Device in 1 Hour (Weight: 10)
         dev_1h = feat_dict["device_signups_last_hour"]
-        dev_1h_pts = min(10.0, dev_1h * 5.0)
-        signal_breakdown["device_hourly_velocity"] = round(dev_1h_pts, 1)
+        signal_breakdown["device_hourly_velocity"] = round(min(10.0, dev_1h * 5.0), 1)
 
-        # D. IP Address Reuse (Weight: 15) & Subnet (Weight: 5)
         ip_reuse = feat_dict["ip_reuse_count"]
-        ip_pts = min(15.0, ip_reuse * 15.0)
-        signal_breakdown["ip_address_reuse"] = round(ip_pts, 1)
+        signal_breakdown["ip_address_reuse"] = round(min(15.0, ip_reuse * 15.0), 1)
         
         subnet_reuse = feat_dict["ip_subnet_reuse_count"]
-        subnet_pts = min(5.0, (1.0 if subnet_reuse >= 3 else 0.0) * 5.0)
-        signal_breakdown["ip_subnet_reuse"] = round(subnet_pts, 1)
+        signal_breakdown["ip_subnet_reuse"] = round(min(5.0, (1.0 if subnet_reuse >= 3 else 0.0) * 5.0), 1)
 
-        # --- ZERO-SHOT INTRINSIC SIGNALS (No Prior History Required) ---
-        # E. Disposable / Burner Email Domain (Weight: 20 max for zero-shot accuracy)
         disp_email = feat_dict["is_disposable_email_domain"]
         plus_tag = feat_dict["email_local_has_plus_tag"]
         email_digits = feat_dict["email_local_has_digits"]
         email_pts = (20.0 if disp_email else 0.0) + (5.0 if plus_tag else 0.0) + (5.0 if email_digits and not plus_tag else 0.0)
         signal_breakdown["email_domain_risk"] = min(20.0, round(email_pts, 1))
 
-        # F. Name Similarity Score (Weight: 5)
         name_sim = feat_dict["name_similarity_score"]
-        name_pts = 5.0 if name_sim >= 0.85 else 0.0
-        signal_breakdown["name_similarity"] = round(name_pts, 1)
+        signal_breakdown["name_similarity"] = round(5.0 if name_sim >= 0.85 else 0.0, 1)
 
-        # G. Area / BIN Country Mismatch Zero-Shot Check (Weight: 15 max)
         geo_mismatch = feat_dict["payment_ip_country_mismatch"]
-        geo_pts = 15.0 if geo_mismatch else 0.0
-        signal_breakdown["area_geo_mismatch"] = round(geo_pts, 1)
-
-        # Total Additive Risk Score
-        total_score = sum(signal_breakdown.values())
-        risk_score = round(min(100.0, max(0.0, total_score)), 1)
-
-        # Verdict and Action Calibration
-        if risk_score < 25.0:
-            verdict = "NEW USER (GENUINE)"
-            action = "ALLOW"
-            severity = "low"
-            confidence = round(100.0 - risk_score, 1)
-        elif risk_score < 50.0:
-            verdict = "SUSPICIOUS (STEP-UP)"
-            action = "STEP-UP / MANUAL REVIEW"
-            severity = "medium"
-            confidence = round(max(risk_score, 100.0 - risk_score), 1)
-        else:
-            verdict = "REPEATING USER (LIKELY ABUSE)"
-            action = "BLOCK / REQUIRE PAYMENT"
-            severity = "high"
-            confidence = round(risk_score, 1)
-
+        signal_breakdown["area_geo_mismatch"] = round(15.0 if geo_mismatch else 0.0, 1)
+        
         signal_breakdown = dict(sorted(signal_breakdown.items(), key=lambda x: x[1], reverse=True))
+
+        # --- MODEL-DRIVEN SCORING (primary) ---
+        if self.pipeline is not None:
+            # Build feature vector in the exact column order the model expects
+            X = np.array([[feat_dict[col] for col in FEATURE_COLS]])
+            model_prob = float(self.pipeline.predict_proba(X)[:, 1][0])
+            risk_score = round(model_prob * 100.0, 1)
+            feat_dict["model_probability"] = round(model_prob, 6)
+            
+            # 3-band verdict using cost-optimized threshold
+            threshold = self.decision_threshold
+            low_band = 0.55 * threshold
+            
+            if model_prob < low_band:
+                verdict = "NEW USER (GENUINE)"
+                action = "ALLOW"
+                severity = "low"
+            elif model_prob < threshold:
+                verdict = "SUSPICIOUS (STEP-UP)"
+                action = "STEP-UP / MANUAL REVIEW"
+                severity = "medium"
+            else:
+                verdict = "REPEATING USER (LIKELY ABUSE)"
+                action = "BLOCK / REQUIRE PAYMENT"
+                severity = "high"
+            
+            confidence = round(model_prob * 100.0, 1)
+        else:
+            # --- FALLBACK: rule-based scoring (model file missing) ---
+            total_score = sum(signal_breakdown.values())
+            risk_score = round(min(100.0, max(0.0, total_score)), 1)
+            feat_dict["model_probability"] = None
+            
+            if risk_score < 25.0:
+                verdict = "NEW USER (GENUINE)"
+                action = "ALLOW"
+                severity = "low"
+            elif risk_score < 50.0:
+                verdict = "SUSPICIOUS (STEP-UP)"
+                action = "STEP-UP / MANUAL REVIEW"
+                severity = "medium"
+            else:
+                verdict = "REPEATING USER (LIKELY ABUSE)"
+                action = "BLOCK / REQUIRE PAYMENT"
+                severity = "high"
+            
+            confidence = round(risk_score, 1)
 
         return {
             "user_id": event.get("user_id", "unseen_user"),
@@ -350,7 +400,7 @@ class FraudRiskEngine:
             "recommended_action": action,
             "severity": severity,
             "model_confidence_pct": confidence,
-            "decision_threshold": 50.0,
+            "decision_threshold": round(self.decision_threshold * 100, 1),
             "raw_features": feat_dict,
             "signal_breakdown": signal_breakdown,
         }

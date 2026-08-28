@@ -44,14 +44,10 @@ area_to_country = {
 rng = np.random.default_rng(7)
 df["ip_country"] = df["area"].map(area_to_country)
 
-mismatch_roll = rng.random(len(df))
-mismatch_prob = np.where(df["is_repeat_user"] == 1, 0.30, 0.04)
-df["payment_country"] = df["ip_country"]
-mismatch_mask = mismatch_roll < mismatch_prob
-other_countries = list(set(area_to_country.values()))
-df.loc[mismatch_mask, "payment_country"] = [
-    rng.choice(other_countries) for _ in range(mismatch_mask.sum())
-]
+# payment_country is now in the raw data (generated label-independently in 01_generate_data.py)
+# Simply compute the mismatch from existing columns — no label lookup
+df["payment_ip_country_mismatch"] = (df["ip_country"] != df["payment_country"]).astype(int)
+
 
 def ip_subnet(ip):
     return ".".join(ip.split(".")[:3])

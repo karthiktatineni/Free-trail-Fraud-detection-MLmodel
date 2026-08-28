@@ -46,7 +46,15 @@ def run_iterative_active_learning(num_rounds: int = 5, query_batch_size: int = 2
     # 1. Load Dataset & Base Pipeline
     df_features = pd.read_csv(FEATURES_PATH)
     pipeline = joblib.load(MODEL_PATH)
-    base_scaler = pipeline.named_steps["scaler"]
+    if hasattr(pipeline, "named_steps"):
+        base_scaler = pipeline.named_steps["scaler"]
+    elif hasattr(pipeline, "estimator") and hasattr(pipeline.estimator, "named_steps"):
+        base_scaler = pipeline.estimator.named_steps["scaler"]
+    elif hasattr(pipeline, "calibrated_classifiers_") and hasattr(pipeline.calibrated_classifiers_[0].estimator, "named_steps"):
+        base_scaler = pipeline.calibrated_classifiers_[0].estimator.named_steps["scaler"]
+    else:
+        from sklearn.preprocessing import StandardScaler
+        base_scaler = StandardScaler().fit(df_features[FEATURE_COLS].values[:int(len(df_features)*0.7)])
 
     X_raw = df_features[FEATURE_COLS].values
     y_raw = df_features["is_repeat_user"].values
@@ -66,7 +74,14 @@ def run_iterative_active_learning(num_rounds: int = 5, query_batch_size: int = 2
     y_test = y_raw[n_train + n_pool:].copy()
 
     X_test_scaled = base_scaler.transform(X_test)
-    threshold_prob = 0.060  # Tuned decision threshold (T = 6.0/100)
+    threshold_prob = 0.100  # Default fallback
+    metrics_file = os.path.join(RESULTS_DIR, "final_metrics.json")
+    if os.path.exists(metrics_file):
+        try:
+            with open(metrics_file, "r") as f:
+                threshold_prob = float(json.load(f).get("decision_threshold", 0.100))
+        except Exception:
+            pass
 
     # Train Initial Seed Model (Round 0)
     X_train_scaled = base_scaler.transform(X_train)

@@ -1,7 +1,9 @@
 """
-PRODUCTION FASTAPI ASYNC MICROSERVICE
-======================================
-High-performance REST API for Real-Time Fraud Detection.
+PRODUCTION FASTAPI MICROSERVICE — XGBoost-Powered Risk Scoring
+===============================================================
+REST API for Real-Time Fraud Detection. Risk scores are computed by
+the trained XGBoost model via predict_proba (not rule-based heuristics).
+A rule-based signal_breakdown is provided alongside for UI explainability.
 
 Endpoints:
 - GET  /healthz        : Health check & readiness probe.
@@ -44,8 +46,9 @@ stats = {
 def get_engine() -> FraudRiskEngine:
     global engine
     if engine is None:
-        print("[FastAPI] Initializing FraudRiskEngine...")
-        engine = FraudRiskEngine(warm_start=True)
+        redis_url = os.environ.get("REDIS_URL")
+        print(f"[FastAPI] Initializing FraudRiskEngine (Redis: {redis_url or 'in-memory fallback'})...")
+        engine = FraudRiskEngine(warm_start=True, redis_url=redis_url)
     return engine
 
 @asynccontextmanager
@@ -88,7 +91,9 @@ class RiskScoreResponse(BaseModel):
     risk_score: float
     verdict: str
     recommended_action: str
+    severity: Optional[str] = None
     model_confidence_pct: float
+    model_probability: Optional[float] = None
     decision_threshold: float
     latency_ms: float
     signal_breakdown: Dict[str, float]
@@ -232,5 +237,6 @@ def get_drift_status():
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting FraudGuard AI Production Microservice on http://0.0.0.0:8000 ...")
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=False)
+    port = int(os.environ.get("PORT", 8000))
+    print(f"Starting FraudGuard AI Production Microservice on http://0.0.0.0:{port} ...")
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)

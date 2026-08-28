@@ -59,7 +59,15 @@ FEATURE_COLS = [
     "area_freq", "device_os_freq",
 ]
 
-clf = pipeline.named_steps["clf"]
+if hasattr(pipeline, "named_steps"):
+    clf = pipeline.named_steps["clf"]
+elif hasattr(pipeline, "estimator") and hasattr(pipeline.estimator, "named_steps"):
+    clf = pipeline.estimator.named_steps["clf"]
+elif hasattr(pipeline, "calibrated_classifiers_") and hasattr(pipeline.calibrated_classifiers_[0].estimator, "named_steps"):
+    clf = pipeline.calibrated_classifiers_[0].estimator.named_steps["clf"]
+else:
+    clf = pipeline
+
 if hasattr(clf, "feature_importances_"):
     importances = clf.feature_importances_
 elif hasattr(clf, "coef_"):

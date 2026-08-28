@@ -2,8 +2,8 @@
   "summary": {},
   "feature_drift": {
     "payment_reuse_count": {
-      "normal_psi": 0.0009,
-      "drifted_psi": 0.0009,
+      "normal_psi": 0.0002,
+      "drifted_psi": 0.0002,
       "status": "STABLE"
     },
     "ip_reuse_count": {
@@ -12,13 +12,13 @@
       "status": "STABLE"
     },
     "ip_subnet_reuse_count": {
-      "normal_psi": 0.0007,
-      "drifted_psi": 0.0007,
+      "normal_psi": 0.0004,
+      "drifted_psi": 0.0004,
       "status": "STABLE"
     },
     "device_reuse_count": {
-      "normal_psi": 0.0001,
-      "drifted_psi": 0.0001,
+      "normal_psi": 0.001,
+      "drifted_psi": 0.001,
       "status": "STABLE"
     },
     "device_signups_last_hour": {
@@ -27,85 +27,85 @@
       "status": "STABLE"
     },
     "payment_signups_last_24h": {
-      "normal_psi": 0.0009,
-      "drifted_psi": 0.0009,
-      "status": "STABLE"
-    },
-    "device_signups_last_24h": {
-      "normal_psi": 0.0001,
-      "drifted_psi": 0.0001,
-      "status": "STABLE"
-    },
-    "subnet_signups_last_24h": {
-      "normal_psi": 0.0008,
-      "drifted_psi": 9.0849,
-      "status": "CRITICAL DRIFT"
-    },
-    "name_similarity_score": {
-      "normal_psi": 0.005,
-      "drifted_psi": 0.005,
-      "status": "STABLE"
-    },
-    "is_disposable_email_domain": {
-      "normal_psi": 0.0001941936545391866,
-      "drifted_psi": 0.8372993583405008,
-      "status": "CRITICAL DRIFT"
-    },
-    "is_free_email_domain": {
-      "normal_psi": 0.00067894984449458,
-      "drifted_psi": 0.00067894984449458,
-      "status": "STABLE"
-    },
-    "email_local_has_digits": {
-      "normal_psi": 0.00016190192653246777,
-      "drifted_psi": 0.00016190192653246777,
-      "status": "STABLE"
-    },
-    "email_local_has_plus_tag": {
-      "normal_psi": 0.00022129915866820796,
-      "drifted_psi": 0.00022129915866820796,
-      "status": "STABLE"
-    },
-    "payment_ip_country_mismatch": {
-      "normal_psi": 2.1994189844680974e-05,
-      "drifted_psi": 2.1994189844680974e-05,
-      "status": "STABLE"
-    },
-    "graph_component_size": {
-      "normal_psi": 0.0001,
-      "drifted_psi": 8.4367,
-      "status": "CRITICAL DRIFT"
-    },
-    "attrs_reused_count": {
       "normal_psi": 0.0002,
       "drifted_psi": 0.0002,
       "status": "STABLE"
     },
+    "device_signups_last_24h": {
+      "normal_psi": 0.001,
+      "drifted_psi": 0.001,
+      "status": "STABLE"
+    },
+    "subnet_signups_last_24h": {
+      "normal_psi": 0.0004,
+      "drifted_psi": 9.0959,
+      "status": "CRITICAL DRIFT"
+    },
+    "name_similarity_score": {
+      "normal_psi": 0.0054,
+      "drifted_psi": 0.0054,
+      "status": "STABLE"
+    },
+    "is_disposable_email_domain": {
+      "normal_psi": 2.284415586005054e-05,
+      "drifted_psi": 0.8434229473089234,
+      "status": "CRITICAL DRIFT"
+    },
+    "is_free_email_domain": {
+      "normal_psi": 0.0006212992558874734,
+      "drifted_psi": 0.0006212992558874734,
+      "status": "STABLE"
+    },
+    "email_local_has_digits": {
+      "normal_psi": 6.053646218839257e-05,
+      "drifted_psi": 6.053646218839257e-05,
+      "status": "STABLE"
+    },
+    "email_local_has_plus_tag": {
+      "normal_psi": 0.0009232787395365706,
+      "drifted_psi": 0.0009232787395365706,
+      "status": "STABLE"
+    },
+    "payment_ip_country_mismatch": {
+      "normal_psi": 1.3656784079726003e-07,
+      "drifted_psi": 1.3656784079726003e-07,
+      "status": "STABLE"
+    },
+    "graph_component_size": {
+      "normal_psi": 0.0011,
+      "drifted_psi": 8.4321,
+      "status": "CRITICAL DRIFT"
+    },
+    "attrs_reused_count": {
+      "normal_psi": 0.0003,
+      "drifted_psi": 0.0003,
+      "status": "STABLE"
+    },
     "signup_hour": {
-      "normal_psi": 0.0035,
-      "drifted_psi": 0.0035,
+      "normal_psi": 0.0028,
+      "drifted_psi": 0.0028,
       "status": "STABLE"
     },
     "is_odd_hour": {
-      "normal_psi": 3.4749051918397724e-05,
-      "drifted_psi": 3.4749051918397724e-05,
+      "normal_psi": 0.0005068763479890768,
+      "drifted_psi": 0.0005068763479890768,
       "status": "STABLE"
     },
     "area_freq": {
-      "normal_psi": 0.0027,
-      "drifted_psi": 0.0027,
+      "normal_psi": 0.0034,
+      "drifted_psi": 0.0034,
       "status": "STABLE"
     },
     "device_os_freq": {
-      "normal_psi": 0.0024,
-      "drifted_psi": 0.0024,
+      "normal_psi": 0.0006,
+      "drifted_psi": 0.0006,
       "status": "STABLE"
     }
   },
   "prediction_drift": {
-    "normal_score_psi": 0.0032,
-    "drifted_score_psi": 6.0231,
-    "kolmogorov_smirnov_stat": 0.7228000164031982,
+    "normal_score_psi": 0.0026,
+    "drifted_score_psi": 6.2077,
+    "kolmogorov_smirnov_stat": 0.7268,
     "kolmogorov_smirnov_pvalue": 0.0,
     "retrain_recommended": true
   }

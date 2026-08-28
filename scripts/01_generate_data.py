@@ -34,6 +34,15 @@ KEEP_PAYMENT = 0.75
 KEEP_DEVICE = 0.65
 KEEP_IP = 0.50        # rotates within same /24 subnet
 KEEP_AREA = 0.85
+GENUINE_MISMATCH_RATE = 0.04  # ~4% of genuine users show geo mismatch (travel, VPN, gift cards)
+
+AREA_TO_COUNTRY = {
+    "mumbai": "IN", "delhi": "IN", "bangalore": "IN", "hyderabad": "IN",
+    "chennai": "IN", "pune": "IN", "kolkata": "IN", "ahmedabad": "IN",
+    "new_york": "US", "san_francisco": "US", "london": "GB",
+    "toronto": "CA", "singapore": "SG", "dubai": "AE"
+}
+ALL_COUNTRIES = list(set(AREA_TO_COUNTRY.values()))
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
@@ -114,6 +123,13 @@ date_range_seconds = int((end_ts - start_ts).total_seconds())
 for i in range(N_GENUINE):
     name = random_name()
     domain = rng.choice(LEGIT_DOMAINS)
+    area = rng.choice(AREAS)
+    ip_country = AREA_TO_COUNTRY[area]
+    # ~4% of genuine users show a mismatch (travel, VPN, gift cards, expat bank)
+    if rng.random() < GENUINE_MISMATCH_RATE:
+        payment_country = rng.choice([c for c in ALL_COUNTRIES if c != ip_country])
+    else:
+        payment_country = ip_country
     genuine_records.append({
         "user_id": f"u_{i}",
         "signup_time": start_ts + pd.Timedelta(seconds=int(rng.integers(0, date_range_seconds))),
@@ -124,7 +140,8 @@ for i in range(N_GENUINE):
         "device_id": random_device_id(),
         "device_os": rng.choice(DEVICE_OS_LIST),
         "payment_token": random_payment_token(),
-        "area": rng.choice(AREAS),
+        "area": area,
+        "payment_country": payment_country,
         "is_repeat_user": 0,
         "ring_id": -1,
     })
@@ -143,6 +160,8 @@ for ring_idx in range(N_RINGS):
     base_payment = random_payment_token()
     base_area = rng.choice(AREAS)
     base_os = rng.choice(DEVICE_OS_LIST)
+    # BIN issuing country is tied to the ring leader's home area
+    base_payment_country = AREA_TO_COUNTRY[base_area]
 
     ring_start = start_ts + pd.Timedelta(seconds=int(rng.integers(0, date_range_seconds)))
 
@@ -156,6 +175,14 @@ for ring_idx in range(N_RINGS):
         device = base_device if rng.random() < KEEP_DEVICE else random_device_id()
         payment = base_payment if rng.random() < KEEP_PAYMENT else random_payment_token()
         area = base_area if rng.random() < KEEP_AREA else rng.choice(AREAS)
+
+        # Payment country follows the payment token:
+        # - If keeping base payment → base_payment_country (ring leader's BIN)
+        # - If new payment token → country of the current area (new card)
+        if payment == base_payment:
+            payment_country = base_payment_country
+        else:
+            payment_country = AREA_TO_COUNTRY[area]
 
         name = perturb_name(base_name)
 
@@ -177,6 +204,7 @@ for ring_idx in range(N_RINGS):
             "device_os": base_os if rng.random() < 0.8 else rng.choice(DEVICE_OS_LIST),
             "payment_token": payment,
             "area": area,
+            "payment_country": payment_country,
             "is_repeat_user": 1,
             "ring_id": ring_idx,
         })

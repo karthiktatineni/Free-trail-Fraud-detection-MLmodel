@@ -1,0 +1,91 @@
+{
+  "overall_fpr": 0.0,
+  "overall_fnr": 0.0627,
+  "subgroups": {
+    "ahmedabad": {
+      "n": 101,
+      "fpr": 0.0,
+      "fnr": 0.1034,
+      "flag": "OK"
+    },
+    "bangalore": {
+      "n": 95,
+      "fpr": 0.0,
+      "fnr": 0.1071,
+      "flag": "OK"
+    },
+    "chennai": {
+      "n": 101,
+      "fpr": 0.0,
+      "fnr": 0.0286,
+      "flag": "OK"
+    },
+    "delhi": {
+      "n": 87,
+      "fpr": 0.0,
+      "fnr": 0.0345,
+      "flag": "OK"
+    },
+    "dubai": {
+      "n": 96,
+      "fpr": 0.0,
+      "fnr": 0.069,
+      "flag": "OK"
+    },
+    "hyderabad": {
+      "n": 90,
+      "fpr": 0.0,
+      "fnr": 0.0,
+      "flag": "OK"
+    },
+    "kolkata": {
+      "n": 104,
+      "fpr": 0.0,
+      "fnr": 0.0476,
+      "flag": "OK"
+    },
+    "london": {
+      "n": 98,
+      "fpr": 0.0,
+      "fnr": 0.0435,
+      "flag": "OK"
+    },
+    "mumbai": {
+      "n": 109,
+      "fpr": 0.0,
+      "fnr": 0.1034,
+      "flag": "OK"
+    },
+    "new_york": {
+      "n": 100,
+      "fpr": 0.0,
+      "fnr": 0.0556,
+      "flag": "OK"
+    },
+    "pune": {
+      "n": 101,
+      "fpr": 0.0,
+      "fnr": 0.0286,
+      "flag": "OK"
+    },
+    "san_francisco": {
+      "n": 117,
+      "fpr": 0.0,
+      "fnr": 0.1316,
+      "flag": "HIGH_FNR"
+    },
+    "singapore": {
+      "n": 95,
+      "fpr": 0.0,
+      "fnr": 0.0741,
+      "flag": "OK"
+    },
+    "toronto": {
+      "n": 96,
+      "fpr": 0.0,
+      "fnr": 0.0286,
+      "flag": "OK"
+    }
+  },
+  "min_sample_gate": 50
+}
