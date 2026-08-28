@@ -204,8 +204,8 @@ class FraudRiskEngine:
         subnet = ".".join(ip.split(".")[:3])
         dev = str(event.get("device_id", "dev_unknown")).strip()
         pay = str(event.get("payment_token", "pm_unknown")).strip()
-        area = str(event.get("area", "mumbai")).strip().lower()
-        os_name = str(event.get("device_os", "android")).strip().lower()
+        area = str(event.get("area", "mumbai")).strip().lower().replace(" ", "_").replace("-", "_")
+        os_name = str(event.get("device_os", "android")).strip().lower().replace(" ", "_")
 
         t_val = event.get("signup_time")
         if t_val is None or pd.isna(t_val):
