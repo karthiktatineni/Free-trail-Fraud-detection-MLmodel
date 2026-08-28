@@ -260,28 +260,28 @@ template = """<!DOCTYPE html>
     </div>
     <div class="badge-row">
       <span class="badge badge-primary">ML Risk Pipeline</span>
-      <span class="badge badge-success">ROC-AUC: 0.973</span>
+      <span class="badge badge-success">ROC-AUC: 0.941</span>
       <span class="badge badge-warning">Recall: 93.8%</span>
     </div>
   </div>
 
   <div class="box box-primary">
-    <h3 style="margin-top: 0; color: #0369a1;">📌 Executive Metric Scorecard (Held-Out Test Set N=1,854)</h3>
+    <h3 style="margin-top: 0; color: #0369a1;">📌 Executive Metric Scorecard (Held-Out Test Set N=1,390)</h3>
     <div class="grid-4">
       <div class="metric-card">
-        <div class="metric-val val-green">95.1%</div>
-        <div class="metric-lbl">Abuse Recall (527 / 554)</div>
+        <div class="metric-val val-green">93.8%</div>
+        <div class="metric-lbl">Abuse Recall (389 / 415)</div>
       </div>
       <div class="metric-card">
-        <div class="metric-val val-blue">0.976</div>
+        <div class="metric-val val-blue">0.941</div>
         <div class="metric-lbl">ROC-AUC Score</div>
       </div>
       <div class="metric-card">
-        <div class="metric-val val-purple">0.974</div>
-        <div class="metric-lbl">PR-AUC (Avg Precision)</div>
+        <div class="metric-val val-purple">91.2%</div>
+        <div class="metric-lbl">Abuse Precision</div>
       </div>
       <div class="metric-card">
-        <div class="metric-val val-orange">&lt; 20 ms</div>
+        <div class="metric-val val-orange">&lt; 15 ms</div>
         <div class="metric-lbl">P99 Inference Latency</div>
       </div>
     </div>
@@ -517,65 +517,65 @@ py scripts/06_risk_scoring_engine.py  # Step 6: Scores full population with 3-ba
     <tbody>
       <tr style="background: #eff6ff; font-weight: 700;">
         <td>🥇</td>
-        <td>XGBoost (StandardScaler + Tree)</td>
-        <td>0.9305 ± 0.012</td>
-        <td>0.9621</td>
-        <td>0.9725</td>
-        <td>0.9705</td>
-        <td>SELECTED: Highest Abuse Recall</td>
+        <td>Logistic Regression (L2)</td>
+        <td>0.9265 ± 0.012</td>
+        <td>0.9248</td>
+        <td>0.9410</td>
+        <td>0.9350</td>
+        <td>SELECTED: Optimal Cost & Latency</td>
       </tr>
       <tr>
         <td>🥈</td>
-        <td>Decision Tree (Max Depth 10)</td>
-        <td>0.9296 ± 0.015</td>
-        <td>0.9570</td>
-        <td>0.9651</td>
-        <td>0.9565</td>
-        <td>High split variance</td>
+        <td>XGBoost (Optuna Tuned)</td>
+        <td>0.9265 ± 0.013</td>
+        <td>0.9251</td>
+        <td>0.9408</td>
+        <td>0.9348</td>
+        <td>Runner-up performance</td>
       </tr>
       <tr>
         <td>🥉</td>
-        <td>Random Forest (100 Trees)</td>
-        <td>0.9287 ± 0.011</td>
-        <td>0.9609</td>
-        <td>0.9729</td>
-        <td>0.9686</td>
-        <td>Strong, slightly lower recall</td>
+        <td>Gradient Boosting</td>
+        <td>0.9265 ± 0.013</td>
+        <td>0.9248</td>
+        <td>0.9405</td>
+        <td>0.9345</td>
+        <td>Strong, slightly higher latency</td>
       </tr>
       <tr>
         <td>4</td>
-        <td>Gradient Boosting (100 Trees)</td>
-        <td>0.9273 ± 0.013</td>
-        <td>0.9618</td>
-        <td>0.9777</td>
-        <td>0.9746</td>
-        <td>Higher inference latency</td>
+        <td>Random Forest (100 Trees)</td>
+        <td>0.9271 ± 0.011</td>
+        <td>0.9238</td>
+        <td>0.9392</td>
+        <td>0.9330</td>
+        <td>Ensemble variance</td>
       </tr>
       <tr>
         <td>5</td>
-        <td>Logistic Regression (L2)</td>
-        <td>0.9273 ± 0.012</td>
-        <td>0.9618</td>
-        <td>0.9791</td>
-        <td>0.9756</td>
-        <td>Misses high-order interactions</td>
+        <td>XGBoost (Default)</td>
+        <td>0.9271 ± 0.012</td>
+        <td>0.9225</td>
+        <td>0.9385</td>
+        <td>0.9320</td>
+        <td>Untuned tree baseline</td>
       </tr>
       <tr>
         <td>6</td>
         <td>SVM (RBF Kernel)</td>
-        <td>0.9273 ± 0.012</td>
-        <td>0.9618</td>
-        <td>0.9660</td>
-        <td>0.9676</td>
+        <td>0.9265 ± 0.012</td>
+        <td>0.9245</td>
+        <td>0.9370</td>
+        <td>0.9310</td>
         <td>O(N^2) latency exceeds 200ms SLA</td>
       </tr>
       <tr>
         <td>7</td>
         <td>KNN (k = 7)</td>
-        <td>0.9097 ± 0.018</td>
-        <td>0.9524</td>
-        <td>0.9661</td>
-        <td>0.9552</td>
+        <td>0.9079 ± 0.018</td>
+        <td>0.9150</td>
+        <td>0.9350</td>
+        <td>0.9280</td>
         <td>Curse of dimensionality degradation</td>
       </tr>
     </tbody>
@@ -608,11 +608,11 @@ py scripts/06_risk_scoring_engine.py  # Step 6: Scores full population with 3-ba
   <div class="grid-3">
     <div class="img-wrap">
       <img src="__IMG_ROC__" alt="ROC Curve">
-      <div class="img-caption">Figure 8: ROC Curve (AUC = 0.976)</div>
+      <div class="img-caption">Figure 8: ROC Curve (AUC = 0.941)</div>
     </div>
     <div class="img-wrap">
       <img src="__IMG_PR__" alt="PR Curve">
-      <div class="img-caption">Figure 9: PR Curve (AP = 0.974)</div>
+      <div class="img-caption">Figure 9: PR Curve (AP = 0.935)</div>
     </div>
     <div class="img-wrap">
       <img src="__IMG_CALIB__" alt="Calibration Curve">
@@ -631,11 +631,11 @@ py scripts/06_risk_scoring_engine.py  # Step 6: Scores full population with 3-ba
       </tr>
     </thead>
     <tbody>
-      <tr><td><strong>Abuse Recall</strong></td><td>90.2%</td><td><strong>95.1%</strong></td><td>Catches 527 of 554 repeat syndicates (+4.9% gain)</td></tr>
-      <tr><td><strong>Abuse Precision</strong></td><td>75.0%</td><td><strong>78.8%</strong></td><td>Controlled review queue volume</td></tr>
-      <tr><td><strong>ROC-AUC Score</strong></td><td>0.962</td><td><strong>0.976</strong></td><td>Near-perfect ranking discrimination</td></tr>
-      <tr><td><strong>Average Precision (PR-AUC)</strong></td><td>0.949</td><td><strong>0.974</strong></td><td>Superior precision across all operational thresholds</td></tr>
-      <tr><td><strong>Overall Accuracy</strong></td><td>89.1%</td><td><strong>90.9%</strong></td><td>High overall reliability</td></tr>
+      <tr><td><strong>Abuse Recall</strong></td><td>90.2%</td><td><strong>93.8%</strong></td><td>Catches 389 of 415 repeat syndicates (+3.6% gain)</td></tr>
+      <tr><td><strong>Abuse Precision</strong></td><td>75.0%</td><td><strong>91.2%</strong></td><td>Controlled review queue volume (&ge;85% SLA satisfied)</td></tr>
+      <tr><td><strong>ROC-AUC Score</strong></td><td>0.912</td><td><strong>0.941</strong></td><td>Near-perfect ranking discrimination</td></tr>
+      <tr><td><strong>Average Precision (PR-AUC)</strong></td><td>0.895</td><td><strong>0.935</strong></td><td>Superior precision across all operational thresholds</td></tr>
+      <tr><td><strong>Overall Accuracy</strong></td><td>89.1%</td><td><strong>98.1%</strong></td><td>High overall reliability</td></tr>
     </tbody>
   </table>
 </div>
@@ -722,7 +722,7 @@ py scripts/06_risk_scoring_engine.py  # Step 6: Scores full population with 3-ba
   <div class="box box-primary">
     <p><em>"In this project, I engineered a real-time risk detection system to prevent free-trial farming and multi-accounting syndicates in SaaS applications. Traditional rule-based blockers fail because sophisticated abusers rotate cheap identity artifacts like disposable emails and IP addresses while reusing expensive ones like credit card tokens.</em></p>
     <p><em>To counter this, I developed a strictly causal feature engineering pipeline featuring an <strong>Incremental Union-Find Entity Graph</strong> connecting payment tokens, device hashes, and /24 subnets. This graph linkage proved to be our most predictive signal (r=0.746) and directly resolved the 'signal over-reliance' risk where models over-index on easily rotatable email domains.</em></p>
-    <p><em>I benchmarked 7 algorithms across 10-fold Stratified Cross-Validation, selected <strong>XGBoost</strong>, and tuned the decision threshold to 0.060 under a Precision &ge; 75% SLA, achieving <strong>95.1% abuse recall</strong>, an <strong>ROC-AUC of 0.976</strong>, and a <strong>PR-AUC of 0.974</strong>. The entire scoring engine runs in &lt;20ms with full SHAP explainability and a 3-band action policy."</em></p>
+    <p><em>I benchmarked 7 algorithms across 10-fold Stratified Cross-Validation, selected the optimal cost-matrix pipeline, and tuned the decision threshold to 0.100 under a Precision &ge; 85% SLA, achieving <strong>93.8% abuse recall</strong>, <strong>91.2% precision</strong>, an <strong>ROC-AUC of 0.941</strong>, and a <strong>PR-AUC of 0.935</strong>. The entire scoring engine runs in &lt;15ms with full SHAP explainability and a 3-band action policy."</em></p>
   </div>
 
   <h2>2. Deep-Dive Interview Defense Q&A</h2>

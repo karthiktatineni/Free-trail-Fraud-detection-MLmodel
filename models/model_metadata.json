@@ -30,8 +30,8 @@
   "cost_fn": 5.0,
   "cost_fp": 1.0,
   "cv_recall_mean": 0.9265423855563271,
-  "cv_f1_mean": 0.9612479521150403,
-  "cv_roc_auc_mean": 0.9739938694925072,
+  "cv_f1_mean": 0.9248,
+  "cv_roc_auc_mean": 0.941,
   "val_expected_cost": 0.12311015118790497,
   "val_optimal_threshold": 0.19,
   "optuna_best_params": {

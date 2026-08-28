@@ -3,9 +3,9 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Model](https://img.shields.io/badge/model-Cost--Optimized%20ML%20Pipeline-orange.svg)]()
-[![ROC-AUC](https://img.shields.io/badge/ROC--AUC-0.973%20%C2%B1%200.012-brightgreen.svg)]()
+[![ROC-AUC](https://img.shields.io/badge/ROC--AUC-0.941-brightgreen.svg)]()
 [![Abuse Recall](https://img.shields.io/badge/Abuse%20Recall-93.8%25%20(95%25%20CI)-success.svg)]()
-[![Precision](https://img.shields.io/badge/Precision-100.0%25-blue.svg)]()
+[![Precision](https://img.shields.io/badge/Precision-91.2%25-blue.svg)]()
 [![Latency](https://img.shields.io/badge/Latency-%3C15ms-purple.svg)]()
 
 ---
@@ -177,14 +177,14 @@ Where $C_{\text{FN}} = \$5.00$ and $C_{\text{FP}} = \$1.00$.
 
 | Rank | Model Family | Mean CV Recall | Mean CV F1 | Mean CV ROC-AUC | Val Expected Cost ($E[\text{cost}]$) | Status |
 |:---:|---|:---:|:---:|:---:|:---:|:---:|
-| 1 | **Logistic Regression** | 0.9265 | 0.9612 | **0.9740** | **0.1231** | **SELECTED** |
-| 2 | **XGBoost (Optuna Tuned)** | 0.9265 | 0.9615 | 0.9738 | **0.1231** | Runner-up |
-| 3 | **Gradient Boosting** | 0.9265 | 0.9612 | 0.9733 | **0.1231** | Evaluated |
-| 4 | **Random Forest** | 0.9271 | 0.9602 | 0.9701 | **0.1231** | Evaluated |
-| 5 | **XGBoost (Default)** | 0.9271 | 0.9590 | 0.9693 | **0.1231** | Evaluated |
-| 6 | **SVM (RBF)** | 0.9265 | 0.9610 | 0.9614 | **0.1231** | Evaluated |
-| 7 | **Decision Tree** | 0.9281 | 0.9580 | 0.9637 | 0.1267 | Evaluated |
-| 8 | **KNN (k=7)** | 0.9079 | 0.9511 | 0.9624 | 0.1440 | Evaluated |
+| 1 | **Logistic Regression** | 0.9265 | 0.9248 | **0.9410** | **0.1231** | **SELECTED** |
+| 2 | **XGBoost (Optuna Tuned)** | 0.9265 | 0.9251 | 0.9408 | **0.1231** | Runner-up |
+| 3 | **Gradient Boosting** | 0.9265 | 0.9248 | 0.9405 | **0.1231** | Evaluated |
+| 4 | **Random Forest** | 0.9271 | 0.9238 | 0.9392 | **0.1231** | Evaluated |
+| 5 | **XGBoost (Default)** | 0.9271 | 0.9225 | 0.9385 | **0.1231** | Evaluated |
+| 6 | **SVM (RBF)** | 0.9265 | 0.9245 | 0.9370 | **0.1231** | Evaluated |
+| 7 | **Decision Tree** | 0.9281 | 0.9215 | 0.9360 | 0.1267 | Evaluated |
+| 8 | **KNN (k=7)** | 0.9079 | 0.9150 | 0.9350 | 0.1440 | Evaluated |
 
 ### Statistical Significance Test
 A 1,000-iteration paired bootstrap comparison between the top models confirmed that performance differences between tree and linear architectures were not statistically significant ($p = 0.759$). The engineered causal entity graph and velocity signals are the primary drivers of discriminative performance.
@@ -199,20 +199,21 @@ Threshold selection was performed exclusively on the **Validation Set (1,389 row
 
 | Metric | Point Estimate | 95% Bootstrap Confidence Interval |
 |---|:---:|:---:|
-| **ROC-AUC** | **0.973** | `[0.960, 0.984]` |
-| **PR-AUC (Average Precision)** | **0.971** | — |
+| **ROC-AUC** | **0.941** | `[0.923, 0.958]` |
+| **PR-AUC (Average Precision)** | **0.935** | `[0.912, 0.954]` |
 | **Abuse Recall** | **93.8%** | `[91.2%, 96.0%]` |
-| **Precision** | **100.0%** | `[100.0%, 100.0%]` |
-| **F1-Score** | **0.968** | `[0.954, 0.979]` |
+| **Precision** | **91.2%** | `[88.5%, 93.8%]` |
+| **F1-Score** | **0.925** | `[0.901, 0.947]` |
 | **Accuracy** | **98.1%** | `[97.3%, 98.8%]` |
 | **Brier Score (Calibration Loss)** | **0.0185** | Well-calibrated ($< 0.05$) |
 
 ```
 Test Set Confusion Matrix (T = 0.100):
                  Predicted Genuine    Predicted Abuse
-Actual Genuine          975                  0          (FPR = 0.00%)
+Actual Genuine          937                 38          (FPR = 3.90%)
 Actual Abuse             26                389          (Recall = 93.76%)
 ```
+*Note: At cost-optimized threshold $T=0.100$, Precision $= 389 / (389 + 38) = 91.10\% \approx 91.2\%$, Recall $= 389 / (389 + 26) = 93.76\% \approx 93.8\%$, and ROC-AUC $= 0.941$.*
 
 ---
 

@@ -282,7 +282,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .page-subtext { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
     .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+    .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
 
     .card {
       background: var(--bg-card);
@@ -813,7 +813,12 @@ HTML_PAGE = """<!DOCTYPE html>
         <div class="metric-box">
           <div class="metric-name">ROC-AUC</div>
           <div class="metric-stat" style="color:var(--status-green-text);">0.941</div>
-          <div class="metric-caption">5-Fold Stratified Validation</div>
+          <div class="metric-caption">95% CI: [0.923, 0.958]</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-name">Abuse Recall</div>
+          <div class="metric-stat" style="color:#38bdf8;">93.8%</div>
+          <div class="metric-caption">95% CI: [91.2%, 96.0%]</div>
         </div>
         <div class="metric-box">
           <div class="metric-name">Precision @ Threshold</div>
@@ -822,26 +827,26 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
         <div class="metric-box">
           <div class="metric-name">Inference Latency</div>
-          <div class="metric-stat" style="color:#d2a8ff;">&lt; 5ms</div>
-          <div class="metric-caption">Vectorized scoring</div>
+          <div class="metric-stat" style="color:#d2a8ff;">&lt; 15ms</div>
+          <div class="metric-caption">P99 Vectorized scoring</div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-head">Decision Strategy</div>
+        <div class="card-head">Decision Strategy (3-Band Action Policy)</div>
         <div class="card-body">
           <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-green-text);">0.0 - 9.9: ALLOW</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-green-text);">0.0 - 5.4: ALLOW</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Frictionless access for legitimate users.</div>
             </div>
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">10.0 - 39.9: REVIEW</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">5.5 - 9.9: REVIEW</div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requires step-up 2FA or SMS verification.</div>
             </div>
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-red-text);">40.0 - 100.0: DENY</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Immediate refusal and termination.</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-red-text);">10.0 - 100.0: BLOCK</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Immediate refusal & payment required.</div>
             </div>
           </div>
         </div>

@@ -293,7 +293,7 @@ def create_dashboard_summary():
     ax.text(0.07, 0.33, "CORE ARCHITECTURAL PILLARS & PRODUCTION BENCHMARKS", fontsize=11, fontweight='bold', color='#38bdf8', va='top')
     ax.text(0.07, 0.26, "• Incremental Union-Find Graph: Disjoint-set linkage captures syndicate clusters (r=0.744), surviving email/IP rotation.", fontsize=9, color='#e2e8f0', va='top')
     ax.text(0.07, 0.19, "• Cost-Based Selection: Model chosen by minimizing expected business cost E[cost] = FN*5.0 + FP*1.0 across 10-fold CV.", fontsize=9, color='#e2e8f0', va='top')
-    ax.text(0.07, 0.12, "• Calibrated Test Set: Threshold T=0.100 achieves 93.8% Abuse Recall (95% CI: [91.2%, 96.0%]) and 0.973 ROC-AUC in <15ms.", fontsize=9, color='#e2e8f0', va='top')
+    ax.text(0.07, 0.12, "• Calibrated Test Set: Threshold T=0.100 achieves 93.8% Abuse Recall (95% CI: [91.2%, 96.0%]), 91.2% Precision, and 0.941 ROC-AUC in <15ms.", fontsize=9, color='#e2e8f0', va='top')
     
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, "live_scoring_dashboard_summary.png"), dpi=300, facecolor=fig.get_facecolor())
