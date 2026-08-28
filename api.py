@@ -35,10 +35,12 @@ from database import (
     list_user_api_keys,
     validate_api_key,
     revoke_user_api_key,
+    delete_user_api_key,
     record_customer_signup,
     list_user_customers,
     search_user_customer,
-    push_initial_dataset_to_firebase
+    push_initial_dataset_to_firebase,
+    db_session
 )
 from legal_loader import load_legal_documents, get_legal_document
 
@@ -97,7 +99,7 @@ def get_engine() -> FraudRiskEngine:
     if engine is None:
         redis_url = os.environ.get("REDIS_URL")
         print(f"[FastAPI] Initializing FraudRiskEngine (Redis: {redis_url or 'in-memory fallback'})...")
-        engine = FraudRiskEngine(warm_start=True, redis_url=redis_url)
+        engine = FraudRiskEngine(warm_start=False, redis_url=redis_url)
     return engine
 
 
@@ -263,6 +265,11 @@ class CreateApiKeyRequest(BaseModel):
     key_type: str = "live"
 
 
+class DeleteApiKeyRequest(BaseModel):
+    user_id: str
+    key_id: str
+
+
 # ----------------- MIDDLEWARE -----------------
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -372,9 +379,18 @@ def list_api_keys(user_id: str = Query(...)):
 @app.delete("/api/v1/keys/{key_id}", tags=["API Key Management"])
 def revoke_key(key_id: str, user_id: str = Query(...)):
     """Revokes an API key belonging to a tenant."""
-    success = revoke_user_api_key(user_id=user_id, key_id=key_id)
+    success = delete_user_api_key(user_id=user_id, key_id=key_id) or revoke_user_api_key(user_id=user_id, key_id=key_id)
     if success:
-        return {"status": "success", "message": "Key revoked."}
+        return {"status": "success", "message": "Key deleted."}
+    raise HTTPException(status_code=404, detail="Key not found or unauthorized.")
+
+
+@app.post("/api/v1/keys/delete", tags=["API Key Management"])
+def delete_key_post(req: DeleteApiKeyRequest):
+    """Deletes an API key belonging to a tenant via POST payload."""
+    success = delete_user_api_key(user_id=req.user_id, key_id=req.key_id) or revoke_user_api_key(user_id=req.user_id, key_id=req.key_id)
+    if success:
+        return {"status": "success", "message": "Key deleted."}
     raise HTTPException(status_code=404, detail="Key not found or unauthorized.")
 
 

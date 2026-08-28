@@ -26,7 +26,8 @@ from database import (
     record_customer_signup,
     list_user_customers,
     search_user_customer,
-    push_initial_dataset_to_firebase
+    push_initial_dataset_to_firebase,
+    db_session
 )
 from legal_loader import load_legal_documents, get_legal_document
 
@@ -1839,7 +1840,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
       // 1. Real-time API keys listener directly from Cloud Firestore (Multi-device synced)
       if (keysUnsubscribe) { keysUnsubscribe(); keysUnsubscribe = null; }
-      keysUnsubscribe = db.collection('users').document(uid).collection('api_keys')
+      keysUnsubscribe = db.collection('users').doc(uid).collection('api_keys')
         .onSnapshot(snapshot => {
           const keys = [];
           snapshot.forEach(doc => {
@@ -1871,7 +1872,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
       // 2. Real-time Customer events listener from Cloud Firestore
       if (custsUnsubscribe) { custsUnsubscribe(); custsUnsubscribe = null; }
-      custsUnsubscribe = db.collection('users').document(uid).collection('customers')
+      custsUnsubscribe = db.collection('users').doc(uid).collection('customers')
         .orderBy('created_at', 'desc')
         .limit(50)
         .onSnapshot(snapshot => {
@@ -1913,7 +1914,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         if (firebaseReady && firebase.firestore) {
           try {
             const db = firebase.firestore();
-            db.collection('users').document(uid).set({
+            db.collection('users').doc(uid).set({
               uid: uid,
               email: email,
               display_name: displayName || email.split('@')[0],
@@ -1923,7 +1924,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
               updated_at: new Date().toISOString()
             }, { merge: true }).catch(() => {});
 
-            db.collection('users').document(uid).collection('login_history').add({
+            db.collection('users').doc(uid).collection('login_history').add({
               login_at: new Date().toISOString(),
               email: email,
               user_agent: navigator.userAgent
@@ -2093,7 +2094,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
           try {
             const db = firebase.firestore();
             const custId = data.customer_id || ('cust_' + Date.now());
-            db.collection('users').document(activeUser.uid).collection('customers').document(custId).set({
+            db.collection('users').doc(activeUser.uid).collection('customers').doc(custId).set({
               customer_id: custId,
               name: payload.name,
               email: payload.email,
@@ -2161,7 +2162,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         if (firebaseReady && firebase.firestore) {
           try {
             const db = firebase.firestore();
-            const snap = await db.collection('users').document(activeUser.uid).collection('api_keys').get();
+            const snap = await db.collection('users').doc(activeUser.uid).collection('api_keys').get();
             if (!snap.empty) {
               snap.forEach(doc => {
                 const k = doc.data();
@@ -2270,7 +2271,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
           }
           const db = firebase.firestore();
           const targetUid = currentUser ? currentUser.uid : activeUser.uid;
-          await db.collection('users').document(targetUid).collection('api_keys').document(data.key_id).set({
+          await db.collection('users').doc(targetUid).collection('api_keys').doc(data.key_id).set({
             key_id: data.key_id,
             key_hash: data.key_hash || '',
             user_id: targetUid,
@@ -2305,7 +2306,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         // 1. Delete from Cloud Firestore
         if (firebaseReady && firebase.firestore) {
           try {
-            await firebase.firestore().collection('users').document(activeUser.uid).collection('api_keys').document(keyId).delete();
+            await firebase.firestore().collection('users').doc(activeUser.uid).collection('api_keys').doc(keyId).delete();
           } catch (e) {}
         }
 
@@ -2958,7 +2959,7 @@ class FraudAppHandler(BaseHTTPRequestHandler):
 
         global engine
         if engine is None:
-            engine = FraudRiskEngine(warm_start=True)
+            engine = FraudRiskEngine(warm_start=False)
 
         if path == "/api/v1/client-logs":
             level = payload.get("level", "INFO")
@@ -3051,7 +3052,7 @@ class FraudAppHandler(BaseHTTPRequestHandler):
             import importlib
             retrain_mod = importlib.import_module("scripts.09_continuous_retraining")
             report = retrain_mod.run_continuous_training()
-            engine = FraudRiskEngine(warm_start=True)
+            engine = FraudRiskEngine(warm_start=False)
             self._send_response_json(200, report)
             return
 
@@ -3063,7 +3064,7 @@ def start_server(port=None):
     global engine
     port = port or int(os.environ.get("PORT", 8080))
     print("Initializing Fraud Risk Engine for Developer Platform...")
-    engine = FraudRiskEngine(warm_start=True)
+    engine = FraudRiskEngine(warm_start=False)
     server_address = ("0.0.0.0", port)
     httpd = ThreadingHTTPServer(server_address, FraudAppHandler)
     print(f"\n==============================================================")

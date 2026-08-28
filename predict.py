@@ -53,8 +53,11 @@ FREE_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.
 AREA_TO_COUNTRY = {
     "mumbai": "IN", "delhi": "IN", "bangalore": "IN", "hyderabad": "IN",
     "chennai": "IN", "pune": "IN", "kolkata": "IN", "ahmedabad": "IN",
-    "new_york": "US", "san_francisco": "US", "london": "GB",
-    "toronto": "CA", "singapore": "SG", "dubai": "AE"
+    "new_york": "US", "san_francisco": "US", "seattle": "US", "chicago": "US",
+    "los_angeles": "US", "boston": "US", "austin": "US",
+    "london": "GB", "manchester": "GB",
+    "toronto": "CA", "vancouver": "CA",
+    "singapore": "SG", "dubai": "AE", "sydney": "AU", "berlin": "DE", "tokyo": "JP", "paris": "FR"
 }
 
 FEATURE_COLS = [
@@ -99,7 +102,7 @@ class IncrementalUnionFind:
 
 
 class FraudRiskEngine:
-    def __init__(self, model_path=MODEL_PATH, warm_start=True, redis_url=None):
+    def __init__(self, model_path=MODEL_PATH, warm_start=False, redis_url=None):
         self.pipeline = None
         if os.path.exists(model_path):
             try:
@@ -223,15 +226,17 @@ class FraudRiskEngine:
 
         device_signups_1h = self.hour_bucket_device.get(key, 0)
 
-        best_sim = 0.0
+        best_sim = 0.60
         if self.seen_name and name_norm:
             candidates = list(self.seen_name.keys())[-300:]
+            sim_found = 0.0
             for cand in candidates:
                 s = SequenceMatcher(None, name_norm, cand).ratio()
-                if s > best_sim:
-                    best_sim = s
-                if best_sim > 0.97:
+                if s > sim_found:
+                    sim_found = s
+                if sim_found > 0.97:
                     break
+            best_sim = sim_found
 
         is_disp = int(email_domain in DISPOSABLE_DOMAINS)
         is_free = int(email_domain in FREE_DOMAINS)
@@ -239,7 +244,7 @@ class FraudRiskEngine:
         email_has_plus = int("+" in email_local)
 
         ip_country = AREA_TO_COUNTRY.get(area, "IN")
-        payment_country = event.get("payment_country", ip_country)
+        payment_country = event.get("payment_country") or ip_country
         geo_mismatch = int(ip_country != payment_country)
 
         graph_size = max(
@@ -252,7 +257,7 @@ class FraudRiskEngine:
             int(payment_reuse_count > 0) +
             int(subnet_reuse_count > 0) +
             int(device_reuse_count > 0) +
-            int(best_sim > 0.85)
+            int(best_sim > 0.85 and len(self.seen_name) > 0)
         )
 
         signup_hour = t.hour
