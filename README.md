@@ -7,7 +7,6 @@
 [![Abuse Recall](https://img.shields.io/badge/Abuse%20Recall-93.8%25%20(95%25%20CI)-success.svg)]()
 [![Precision](https://img.shields.io/badge/Precision-100.0%25-blue.svg)]()
 [![Latency](https://img.shields.io/badge/Latency-%3C15ms-purple.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -299,7 +298,6 @@ Fraud_detection/
 ├── predict.py                                 # Programmatic & CLI scoring engine
 ├── Dockerfile                                 # Multi-stage production container
 ├── docker-compose.yml                         # FastAPI + Redis deployment
-├── LICENSE                                    # MIT License
 ├── INTERVIEW_NOTES.md                         # Technical interview defense & elevator pitch
 └── requirements.txt                           # Pinned Python package dependencies
 ```
