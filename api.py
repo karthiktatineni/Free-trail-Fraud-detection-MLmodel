@@ -152,74 +152,33 @@ async def authenticate_and_rate_limit(
 ) -> Dict[str, Any]:
     """
     Validates tenant API key and strictly enforces the 30 req/min sliding-window rate limit.
+    Rejects missing, empty, or invalid API keys with HTTP 401 Unauthorized.
     """
     api_key = x_api_key
     if not api_key and authorization and authorization.startswith("Bearer "):
         api_key = authorization.split("Bearer ")[1].strip()
 
-    if api_key:
-        api_key = api_key.strip()
+    if not api_key or not api_key.strip() or api_key.strip() in ("null", "undefined", '""', "''"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "missing_api_key",
+                "message": "API key required. Please pass your API key in the 'X-API-Key' header (e.g. 'X-API-Key: fk_live_...')."
+            }
+        )
 
-    if not api_key or "..." in api_key or api_key.startswith("demo_") or api_key in ("fk_live_...", "fk_test_...", "null", "undefined"):
-        client_ip = request.client.host if request.client else "127.0.0.1"
-        demo_key = f"demo_{client_ip}"
-        allowed, effective_limit, remaining, reset_in = rate_limiter.check(demo_key, limit=DEFAULT_RATE_LIMIT)
-        response.headers["X-RateLimit-Limit"] = str(effective_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(reset_in)
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "error": "rate_limit_exceeded",
-                    "message": f"Demo playground rate limit of {effective_limit} requests/minute exceeded for your IP.",
-                    "retry_after_seconds": reset_in
-                },
-                headers={
-                    "Retry-After": str(reset_in),
-                    "X-RateLimit-Limit": str(effective_limit),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(reset_in)
-                }
-            )
-        return {
-            "user_id": "usr_demo",
-            "name": "Demo Playground Key",
-            "key_type": "demo",
-            "rate_limit_per_min": DEFAULT_RATE_LIMIT
-        }
+    api_key = api_key.strip()
 
     # Validate against database
     key_record = validate_api_key(api_key)
     if not key_record:
-        # Fallback to demo mode if caller provided an unrecognized key rather than hard failing playground
-        client_ip = request.client.host if request.client else "127.0.0.1"
-        demo_key = f"demo_{client_ip}"
-        allowed, effective_limit, remaining, reset_in = rate_limiter.check(demo_key, limit=DEFAULT_RATE_LIMIT)
-        response.headers["X-RateLimit-Limit"] = str(effective_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(reset_in)
-        if not allowed:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "error": "rate_limit_exceeded",
-                    "message": f"Demo playground rate limit of {effective_limit} requests/minute exceeded for your IP.",
-                    "retry_after_seconds": reset_in
-                },
-                headers={
-                    "Retry-After": str(reset_in),
-                    "X-RateLimit-Limit": str(effective_limit),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(reset_in)
-                }
-            )
-        return {
-            "user_id": "usr_demo",
-            "name": "Demo Playground Key",
-            "key_type": "demo",
-            "rate_limit_per_min": DEFAULT_RATE_LIMIT
-        }
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "invalid_api_key",
+                "message": "API key not recognized or revoked. Please sign in to generate a valid key."
+            }
+        )
 
     limit = key_record.get("rate_limit_per_min", DEFAULT_RATE_LIMIT)
     allowed, effective_limit, remaining, reset_in = rate_limiter.check(api_key, limit=limit)
@@ -486,12 +445,67 @@ def sync_dataset_to_firebase(batch_limit: int = 200):
     return push_initial_dataset_to_firebase(batch_limit=batch_limit)
 
 
-# ----------------- CORE INFERENCE ENDPOINTS -----------------
+# ----------------- PLAYGROUND & CORE INFERENCE ENDPOINTS -----------------
+@app.post(
+    "/api/v1/playground/score",
+    response_model=RiskScoreResponse,
+    tags=["Playground"],
+    summary="Interactive Playground Evaluation (Client IP Rate Limited)"
+)
+def playground_score(
+    event: SignupEventRequest,
+    request: Request,
+    response: Response,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
+    """
+    Playground endpoint for interactive web dashboard demo.
+    Rate limited by client IP (30 req/min). If an authenticated API key is provided, records under tenant.
+    """
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    key_record = validate_api_key(x_api_key.strip()) if (x_api_key and "..." not in x_api_key and x_api_key.strip()) else None
+    rate_key = x_api_key.strip() if key_record else f"demo_{client_ip}"
+
+    allowed, effective_limit, remaining, reset_in = rate_limiter.check(rate_key, limit=DEFAULT_RATE_LIMIT)
+    response.headers["X-RateLimit-Limit"] = str(effective_limit)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
+    response.headers["X-RateLimit-Reset"] = str(reset_in)
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "rate_limit_exceeded",
+                "message": f"Playground demo rate limit of {effective_limit} requests/minute exceeded for your IP.",
+                "retry_after_seconds": reset_in
+            },
+            headers={"Retry-After": str(reset_in)}
+        )
+
+    start_t = time.perf_counter()
+    eng = get_engine()
+    raw_event = event.model_dump()
+    result = eng.score_event(raw_event, update_state=True)
+    lat_ms = (time.perf_counter() - start_t) * 1000.0
+    result["latency_ms"] = round(lat_ms, 2)
+
+    tenant_uid = key_record["user_id"] if key_record else "usr_demo"
+    cust_id = record_customer_signup(user_id=tenant_uid, event_data=raw_event, score_result=result)
+    result["customer_id"] = cust_id
+
+    stats["total_requests"] += 1
+    stats["total_latency_ms"] += lat_ms
+    verdict = result["verdict"]
+    stats["verdicts"][verdict] = stats["verdicts"].get(verdict, 0) + 1
+
+    return result
+
+
 @app.post(
     "/api/v1/score",
     response_model=RiskScoreResponse,
     tags=["Inference"],
-    summary="Real-Time Single Event Risk Scoring (Strict 30 req/min)"
+    summary="Real-Time Single Event Risk Scoring (Strict API Key & 30 req/min)"
 )
 def score_signup(
     event: SignupEventRequest,

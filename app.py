@@ -1995,7 +1995,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
           headers['X-API-Key'] = primaryApiKey;
         }
 
-        const res = await fetch('/api/v1/score', {
+        const res = await fetch('/api/v1/playground/score', {
           method: 'POST',
           headers: headers,
           body: JSON.stringify(payload)
