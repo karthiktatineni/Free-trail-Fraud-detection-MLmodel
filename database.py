@@ -353,7 +353,14 @@ def revoke_user_api_key(user_id: str, key_id: str) -> bool:
     with db_session() as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE api_keys SET is_active = 0 WHERE user_id = ? AND key_id = ?", (user_id, key_id))
-        return cursor.rowcount > 0
+
+    if FIREBASE_INITIALIZED and firestore_client:
+        try:
+            firestore_client.collection("users").document(user_id).collection("api_keys").document(key_id).set({"is_active": 0}, merge=True)
+        except Exception:
+            pass
+
+    return True
 
 
 def delete_user_api_key(user_id: str, key_id: str) -> bool:
@@ -361,15 +368,14 @@ def delete_user_api_key(user_id: str, key_id: str) -> bool:
     with db_session() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM api_keys WHERE user_id = ? AND key_id = ?", (user_id, key_id))
-        deleted = cursor.rowcount > 0
 
     if FIREBASE_INITIALIZED and firestore_client:
         try:
             firestore_client.collection("users").document(user_id).collection("api_keys").document(key_id).delete()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[DB] Firestore delete key note: {e}")
 
-    return deleted
+    return True
 
 
 # ----------------- CUSTOMER STORAGE & MULTI-TENANT SEARCH -----------------

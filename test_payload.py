@@ -1,52 +1,49 @@
-from predict import FraudRiskEngine
-import json
+import requests
 
-# Initialize engine with clean runtime state (model inference active, no training-data pre-population)
-engine = FraudRiskEngine(warm_start=False)
-
-print("=" * 80)
-print("DEMONSTRATION: TRAINING-DATA NAMES & FIRST-TIME SIGNUPS EVALUATION")
-print("=" * 80)
-
-# 1. First-time signup with Ava (Name / email present in historical synthetic dataset)
-payload_ava = {
-    "name": "Ava",
-    "email": "ava.anderson@gmail.com",
-    "ip_address": "198.51.100.143",
-    "device_id": "dev_iphone_819",
-    "payment_token": "pm_mastercard_9371",
-    "area": "seattle"
+url = "https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/score"
+headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": "fk_live_0bb674919a9999ac87ceb1f590db4da9d18669c4b451c8df"
 }
 
-print("\n[1] Scoring 'Ava' (Name & Domain from training data, first-time signup):")
-res_ava = engine.score_event(payload_ava, update_state=True)
-print(f"  * Verdict            : {res_ava['verdict']}")
-print(f"  * Risk Score         : {res_ava['risk_score']} / 100.0")
-print(f"  * Recommended Action : {res_ava['recommended_action']}")
-print(f"  * Severity           : {res_ava['severity']}")
-print(f"  * Model Confidence   : {res_ava['model_confidence_pct']}%")
-
-# 2. Another training name: 'David Smith'
-payload_david = {
-    "name": "David Smith",
-    "email": "david.smith@gmail.com",
-    "ip_address": "203.0.113.45",
-    "device_id": "dev_macbook_pro_101",
-    "payment_token": "pm_visa_card_101",
-    "area": "london"
+# New Genuine User 1: Maya Patel (London)
+payload_1 = {
+    "name": "Maya Patel",
+    "email": "maya.patel.ldn@gmail.com",
+    "ip_address": "82.165.197.101",
+    "device_id": "dev_macbook_m3_maya_881",
+    "payment_token": "pm_barclays_visa_maya_920",
+    "area": "london",
+    "payment_country": "GB"
 }
 
-print("\n[2] Scoring 'David Smith' (First-time genuine signup):")
-res_david = engine.score_event(payload_david, update_state=True)
-print(f"  * Verdict            : {res_david['verdict']}")
-print(f"  * Risk Score         : {res_david['risk_score']} / 100.0")
-print(f"  * Recommended Action : {res_david['recommended_action']}")
-print(f"  * Severity           : {res_david['severity']}")
+# New Genuine User 2: Ethan Wright (San Francisco)
+payload_2 = {
+    "name": "Ethan Wright",
+    "email": "ethan.wright.tech@gmail.com",
+    "ip_address": "66.220.149.25",
+    "device_id": "dev_pixel_9_ethan_334",
+    "payment_token": "pm_chase_freedom_ethan_104",
+    "area": "san_francisco",
+    "payment_country": "US"
+}
 
-# 3. Simulate Repeat Trial Abuse (Attempting to sign up again with Ava's payment token and device)
-print("\n[3] Simulating Repeat Trial Abuse (Same device & payment token used a 2nd time):")
-res_abuse = engine.score_event(payload_ava, update_state=True)
-print(f"  * Verdict            : {res_abuse['verdict']}")
-print(f"  * Risk Score         : {res_abuse['risk_score']} / 100.0")
-print(f"  * Recommended Action : {res_abuse['recommended_action']}")
-print(f"  * Top Risk Signals   : {dict(list(res_abuse['signal_breakdown'].items())[:3])}")
+# New Genuine User 3: Chloe Tremblay (Toronto)
+payload_3 = {
+    "name": "Chloe Tremblay",
+    "email": "chloe.tremblay.to@gmail.com",
+    "ip_address": "142.250.190.46",
+    "device_id": "dev_iphone_16_chloe_512",
+    "payment_token": "pm_rbc_avion_chloe_789",
+    "area": "toronto",
+    "payment_country": "CA"
+}
+
+# Test with payload_1 (switch to payload_2 or payload_3 as needed)
+res = requests.post(url, json=payload_1, headers=headers)
+decision = res.json()
+
+print(f"User Tested : {payload_1['name']}")
+print("Verdict     :", decision.get("verdict"))
+print("Risk Score  :", decision.get("risk_score"))
+print("Action      :", decision.get("recommended_action"))

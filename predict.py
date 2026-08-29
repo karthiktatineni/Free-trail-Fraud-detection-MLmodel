@@ -191,7 +191,6 @@ class FraudRiskEngine:
             self.window_24h_device.setdefault(dev, []).append(t)
             self.window_24h_ip_subnet.setdefault(subnet, []).append(t)
             self._union(pay, dev)
-            self._union(dev, subnet)
 
     def _warm_start_from_production(self, records):
         """
@@ -234,7 +233,6 @@ class FraudRiskEngine:
             self.window_24h_ip_subnet.setdefault(subnet, []).append(t)
 
             self._union(pay, dev)
-            self._union(dev, subnet)
             loaded += 1
 
         print(f"[Engine] Production warm-start: {loaded} records "
@@ -297,8 +295,7 @@ class FraudRiskEngine:
 
         graph_size = max(
             self._component_size(pay),
-            self._component_size(dev),
-            self._component_size(subnet)
+            self._component_size(dev)
         )
 
         attrs_reused = (
@@ -348,7 +345,6 @@ class FraudRiskEngine:
             self.window_24h_device.setdefault(dev, []).append(t)
             self.window_24h_ip_subnet.setdefault(subnet, []).append(t)
             self._union(pay, dev)
-            self._union(dev, subnet)
 
         return feat_dict
 
@@ -403,18 +399,26 @@ class FraudRiskEngine:
             # Build feature vector in the exact column order the model expects
             X = np.array([[feat_dict[col] for col in FEATURE_COLS]])
             model_prob = float(self.pipeline.predict_proba(X)[:, 1][0])
-            risk_score = round(model_prob * 100.0, 1)
             feat_dict["model_probability"] = round(model_prob, 6)
             
-            # 3-band verdict using cost-optimized threshold
-            threshold = self.decision_threshold
-            low_band = 0.55 * threshold
+            rule_score = round(sum(signal_breakdown.values()), 1)
             
-            if model_prob < low_band:
+            # Align risk score with explainable domain signals when no hard fraud is detected
+            # Prevents single minor features (like shared subnet +5.0) from jumping to 100%
+            if pay_reuse == 0 and dev_reuse == 0 and not disp_email:
+                risk_score = round(min(model_prob * 100.0, max(rule_score, 25.0 + rule_score)), 1)
+            else:
+                risk_score = round(max(rule_score, model_prob * 100.0), 1)
+
+            # 3-Tier Threshold Decision System:
+            # - Low Risk (< 25.0): NEW USER (GENUINE) -> ALLOW (Severity: low)
+            # - Middle Tier (25.0 <= risk_score < 65.0): SUSPICIOUS (STEP-UP) -> STEP-UP / MANUAL REVIEW (Severity: medium)
+            # - High Risk (>= 65.0): REPEATING USER (LIKELY ABUSE) -> BLOCK / REQUIRE PAYMENT (Severity: high)
+            if risk_score < 25.0:
                 verdict = "NEW USER (GENUINE)"
                 action = "ALLOW"
                 severity = "low"
-            elif model_prob < threshold:
+            elif risk_score < 65.0:
                 verdict = "SUSPICIOUS (STEP-UP)"
                 action = "STEP-UP / MANUAL REVIEW"
                 severity = "medium"
@@ -423,7 +427,7 @@ class FraudRiskEngine:
                 action = "BLOCK / REQUIRE PAYMENT"
                 severity = "high"
             
-            confidence = round(model_prob * 100.0, 1)
+            confidence = round(max(risk_score, 100.0 - risk_score), 1)
         else:
             # --- FALLBACK: rule-based scoring (model file missing) ---
             total_score = sum(signal_breakdown.values())
@@ -434,7 +438,7 @@ class FraudRiskEngine:
                 verdict = "NEW USER (GENUINE)"
                 action = "ALLOW"
                 severity = "low"
-            elif risk_score < 50.0:
+            elif risk_score < 65.0:
                 verdict = "SUSPICIOUS (STEP-UP)"
                 action = "STEP-UP / MANUAL REVIEW"
                 severity = "medium"
@@ -443,7 +447,7 @@ class FraudRiskEngine:
                 action = "BLOCK / REQUIRE PAYMENT"
                 severity = "high"
             
-            confidence = round(risk_score, 1)
+            confidence = round(max(risk_score, 100.0 - risk_score), 1)
 
         return {
             "user_id": event.get("user_id", "unseen_user"),

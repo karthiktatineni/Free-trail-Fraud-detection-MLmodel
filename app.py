@@ -910,33 +910,33 @@ HTML_PAGE = r"""<!DOCTYPE html>
             <div class="form-row">
               <div class="field-group">
                 <label class="field-label">Name</label>
-                <input type="text" id="f-name" class="text-input" value="Sarah Miller">
+                <input type="text" id="f-name" class="text-input" value="Oliver Bennett">
               </div>
               <div class="field-group">
                 <label class="field-label">Email</label>
-                <input type="email" id="f-email" class="text-input" value="sarah.miller@gmail.com">
+                <input type="email" id="f-email" class="text-input" value="oliver.bennett8491@gmail.com">
               </div>
             </div>
 
             <div class="form-row">
               <div class="field-group">
                 <label class="field-label">IP Address</label>
-                <input type="text" id="f-ip" class="text-input" value="198.51.100.24">
+                <input type="text" id="f-ip" class="text-input" value="82.165.197.104">
               </div>
               <div class="field-group">
                 <label class="field-label">Device Fingerprint</label>
-                <input type="text" id="f-device" class="text-input" value="dev_macbook_pro_m2_99">
+                <input type="text" id="f-device" class="text-input" value="dev_dell_xps_oliver_49182">
               </div>
             </div>
 
             <div class="form-row">
               <div class="field-group">
                 <label class="field-label">Payment Token</label>
-                <input type="text" id="f-payment" class="text-input" value="pm_visa_auth_8821">
+                <input type="text" id="f-payment" class="text-input" value="pm_mastercard_oliver_77312">
               </div>
               <div class="field-group">
                 <label class="field-label">Billing City</label>
-                <input type="text" id="f-area" class="text-input" value="new york">
+                <input type="text" id="f-area" class="text-input" value="london">
               </div>
             </div>
 
@@ -944,8 +944,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
               <div class="field-group">
                 <label class="field-label">Operating System</label>
                 <select id="f-os" class="select-input">
-                  <option value="mac">macOS</option>
                   <option value="windows">Windows</option>
+                  <option value="mac">macOS</option>
                   <option value="linux">Linux</option>
                   <option value="ios">iOS</option>
                   <option value="android">Android</option>
@@ -954,8 +954,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
               <div class="field-group">
                 <label class="field-label">Card Country</label>
                 <select id="f-country" class="select-input">
-                  <option value="US">United States (US)</option>
                   <option value="GB">United Kingdom (GB)</option>
+                  <option value="US">United States (US)</option>
                   <option value="IN">India (IN)</option>
                   <option value="SG">Singapore (SG)</option>
                   <option value="DE">Germany (DE)</option>
@@ -992,8 +992,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
                 <div id="metric-conf" style="font-size:14px; font-weight:700; font-family:var(--font-mono); margin-top:2px;">99.5%</div>
               </div>
               <div class="metric-box" style="padding:10px 12px;">
-                <div class="metric-name" style="font-size:10px;">Threshold</div>
-                <div style="font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent-blue); margin-top:2px;">T = 10.0</div>
+                <div class="metric-name" style="font-size:10px;">Threshold Tiers</div>
+                <div id="metric-thresh" style="font-size:11px; font-weight:700; font-family:var(--font-mono); color:var(--accent-blue); margin-top:4px;">Low &lt; 25 | Mid 25-65 | High &ge; 65</div>
               </div>
               <div class="metric-box" style="padding:10px 12px;">
                 <div class="metric-name" style="font-size:10px;">Record ID</div>
@@ -1539,14 +1539,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
     const PRESETS = {
       genuine: {
-        name: "Sarah Miller",
-        email: "sarah.miller@gmail.com",
-        ip: "198.51.100.24",
-        device: "dev_macbook_pro_m2_99",
-        payment: "pm_visa_auth_8821",
-        area: "new york",
-        os: "mac",
-        country: "US"
+        name: "Oliver Bennett",
+        email: "oliver.bennett8491@gmail.com",
+        ip: "82.165.197.104",
+        device: "dev_dell_xps_oliver_49182",
+        payment: "pm_mastercard_oliver_77312",
+        area: "london",
+        os: "windows",
+        country: "GB"
       },
       syndicate: {
         name: "David Smith",
@@ -1991,7 +1991,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
       const startT = performance.now();
       try {
         const headers = { 'Content-Type': 'application/json' };
-        if (primaryApiKey) headers['X-API-Key'] = primaryApiKey;
+        if (primaryApiKey && !primaryApiKey.includes('...')) {
+          headers['X-API-Key'] = primaryApiKey;
+        }
 
         const res = await fetch('/api/v1/score', {
           method: 'POST',
@@ -2304,24 +2306,34 @@ HTML_PAGE = r"""<!DOCTYPE html>
       }
 
       try {
-        // 1. Delete from Cloud Firestore
+        const currentUser = firebase.auth().currentUser;
+        const targetUid = currentUser ? currentUser.uid : activeUser.uid;
+
+        // 1. Delete from Cloud Firestore directly from client SDK
         if (firebaseReady && firebase.firestore) {
           try {
-            await firebase.firestore().collection('users').doc(activeUser.uid).collection('api_keys').doc(keyId).delete();
-          } catch (e) {}
+            await firebase.firestore().collection('users').doc(targetUid).collection('api_keys').doc(keyId).delete();
+          } catch (e) {
+            console.log("Client Firestore key delete note:", e);
+          }
         }
 
-        // 2. Delete from backend
-        fetch('/api/v1/keys/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: activeUser.uid, key_id: keyId })
-        }).catch(() => {});
+        // 2. Await backend deletion (deletes from SQLite and backend Firestore admin)
+        try {
+          await fetch('/api/v1/keys/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: targetUid, key_id: keyId })
+          });
+        } catch (e) {
+          console.log("Backend delete key note:", e);
+        }
 
         toast(`Key "${keyName}" deleted.`);
         await fetchKeys();
       } catch (e) {
         toast("Failed to delete key: " + e);
+        await fetchKeys();
       }
     }
 
