@@ -1145,12 +1145,51 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <div id="tab-docs" class="tab-content">
       <div class="page-title-row">
         <div>
-          <h1 class="page-heading">API Reference</h1>
-          <p class="page-subtext">Integrate fraud scoring into your application backend.</p>
+          <h1 class="page-heading">API Reference & Integration Guide</h1>
+          <p class="page-subtext">Step-by-step instructions to integrate real-time fraud risk scoring into your app.</p>
+        </div>
+      </div>
+
+      <!-- STEP BY STEP INTEGRATION GUIDE -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-head">Step-by-Step Integration Walkthrough</div>
+        <div class="card-body">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; margin-bottom:16px;">
+            <div style="background:var(--bg-input); padding:12px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:12px; font-weight:700; color:var(--accent-blue);">Step 1: Get API Key</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Sign in with Google/Email & click <strong>"+ New Key"</strong> under the <strong>API Keys</strong> tab. Copy your <code>fk_live_...</code> secret key.
+              </div>
+            </div>
+
+            <div style="background:var(--bg-input); padding:12px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:12px; font-weight:700; color:var(--accent-blue);">Step 2: Collect Signup Event</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Collect customer registration attributes: <code>name</code>, <code>email</code>, client <code>ip_address</code>, browser/device hash <code>device_id</code>, and card <code>payment_token</code>.
+              </div>
+            </div>
+
+            <div style="background:var(--bg-input); padding:12px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:12px; font-weight:700; color:var(--accent-blue);">Step 3: Call Scoring API</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                Send a <code>POST /api/v1/score</code> request with <code>X-API-Key: fk_live_...</code> and JSON payload. Execution returns in &lt;15ms.
+              </div>
+            </div>
+
+            <div style="background:var(--bg-input); padding:12px; border-radius:var(--radius); border:1px solid var(--border-default);">
+              <div style="font-size:12px; font-weight:700; color:var(--accent-blue);">Step 4: Act on 3-Tier Verdict</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+                - <strong>ALLOW (&lt;20)</strong>: Grant instant trial.<br>
+                - <strong>STEP-UP (20-60)</strong>: Trigger SMS/2FA verification.<br>
+                - <strong>BLOCK (&ge;60)</strong>: Reject trial abuse & require upfront card payment.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="card">
+        <div class="card-head">Live Code Snippets</div>
         <div class="lang-bar">
           <button id="tab-lang-curl" class="lang-btn active" onclick="setSnippetLang('curl')">cURL</button>
           <button id="tab-lang-python" class="lang-btn" onclick="setSnippetLang('python')">Python</button>
@@ -1202,20 +1241,20 @@ HTML_PAGE = r"""<!DOCTYPE html>
       </div>
 
       <div class="card">
-        <div class="card-head">Decision Strategy (3-Band Action Policy)</div>
+        <div class="card-head">Decision Strategy (3-Tier Action Policy)</div>
         <div class="card-body">
           <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-green-text);">0.0 - 5.4: ALLOW</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Frictionless access for legitimate users.</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-green-text);">0.0 - 19.9: ALLOW (GENUINE)</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Frictionless access for legitimate, non-reused users.</div>
             </div>
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">5.5 - 9.9: REVIEW</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requires step-up 2FA or SMS verification.</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-amber-text);">20.0 - 59.9: STEP-UP REVIEW</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requires step-up 2FA, SMS verification, or CAPTCHA.</div>
             </div>
             <div style="background:var(--bg-input); padding:10px; border-radius:var(--radius); border:1px solid var(--border-default);">
-              <div style="font-size:11px; font-weight:600; color:var(--status-red-text);">10.0 - 100.0: BLOCK</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Immediate refusal & payment required.</div>
+              <div style="font-size:11px; font-weight:600; color:var(--status-red-text);">60.0 - 100.0: BLOCK ABUSE</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Immediate refusal & requires upfront card payment.</div>
             </div>
           </div>
         </div>
@@ -2402,12 +2441,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
     function renderSnippet() {
       const keyVal = primaryApiKey || "YOUR_API_KEY_HERE";
       const payloadObj = {
-        name: "Sarah Miller",
-        email: "sarah.miller@gmail.com",
-        ip_address: "198.51.100.24",
-        device_id: "dev_macbook_pro_m2_99",
-        payment_token: "pm_visa_auth_8821",
-        area: "new york"
+        name: "Noah Fischer",
+        email: "noah.fischer.berlin@gmail.com",
+        ip_address: "91.198.174.192",
+        device_id: "dev_thinkpad_p14s_noah_6621",
+        payment_token: "pm_mastercard_noah_88190",
+        area: "berlin",
+        device_os: "windows",
+        payment_country: "DE"
       };
 
       let code = "";
@@ -2429,7 +2470,11 @@ payload = ${JSON.stringify(payloadObj, null, 4)}
 res = requests.post(url, json=payload, headers=headers)
 decision = res.json()
 
-print(decision["verdict"], decision["risk_score"])`;
+if "verdict" in decision:
+    print("Verdict:", decision["verdict"], "| Risk Score:", decision["risk_score"])
+else:
+    error_msg = decision.get("detail", {}).get("message") if isinstance(decision.get("detail"), dict) else decision.get("detail")
+    print("Error:", error_msg)`;
       } else if (snippetLang === 'sdk') {
         code = `from client import FraudDetectionClient
 
@@ -2439,12 +2484,14 @@ client = FraudDetectionClient(
 )
 
 decision = client.score_signup(
-    name="Sarah Miller",
-    email="sarah.miller@gmail.com",
-    ip_address="198.51.100.24",
-    device_id="dev_macbook_pro_m2_99",
-    payment_token="pm_visa_auth_8821",
-    area="new york"
+    name="Noah Fischer",
+    email="noah.fischer.berlin@gmail.com",
+    ip_address="91.198.174.192",
+    device_id="dev_thinkpad_p14s_noah_6621",
+    payment_token="pm_mastercard_noah_88190",
+    area="berlin",
+    device_os="windows",
+    payment_country="DE"
 )
 
 print(decision.verdict, decision.risk_score)`;

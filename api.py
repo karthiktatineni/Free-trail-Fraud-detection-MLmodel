@@ -122,13 +122,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Fraud Detection ML Model — Multi-Tenant Commercial API",
     description="""
-### Enterprise Real-Time Fraud & Abuse Detection Platform
+### Enterprise Real-Time Fraud & Free-Trial Abuse Detection Platform
+
+#### 🚀 Step-by-Step Integration Guide:
+1. **Generate API Key**: Sign in to the web dashboard and create an API key (`fk_live_...`) under the **API Keys** tab.
+2. **Collect Registration Attributes**: Capture `name`, `email`, client `ip_address`, `device_id` hardware hash, `payment_token`, `area`, `device_os`, and `payment_country`.
+3. **Send POST Request**: Invoke `/api/v1/score` with your secret key passed in the `X-API-Key` header.
+4. **Execute 3-Tier Policy**:
+   - **`NEW USER (GENUINE)` (Score < 20.0)** &rarr; `ALLOW` (Frictionless instant trial)
+   - **`SUSPICIOUS (STEP-UP)` (Score 20.0 - 59.9)** &rarr; `STEP-UP` (Trigger SMS OTP / 2FA)
+   - **`REPEATING USER (LIKELY ABUSE)` (Score &ge; 60.0)** &rarr; `BLOCK` (Demand upfront paid card)
+5. **Inspect Audit History**: Query and audit all evaluated signups under the **Customers** tab or via `/api/v1/customers`.
 
 - **Strict Rate Limiting:** 30 requests/minute per tenant API key.
 - **Tenant Customer Isolation:** All customer events are stored privately under the authenticated tenant's database.
-- **Authentication:** Provide your key in the `X-API-Key` header (`fk_live_...` or `fk_test_...`).
+- **Interactive Web Demo:** Test without authentication at `/api/v1/playground/score`.
     """,
-    version="2.1.0",
+    version="2.2.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"

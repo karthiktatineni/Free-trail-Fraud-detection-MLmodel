@@ -50,11 +50,11 @@
              │ (4) Risk Score (P × 100) + Explainability Breakdown
              ▼
     ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-    │  STAGE 4: COST-OPTIMIZED 3-BAND POLICY LAYER (< 2ms)                                                             │
-    │  ├─ Decision Threshold (T = 0.100 / Score = 10.0) : Tuned on validation set against business costs ($5 FN / $1 FP) │
-    │  ├─ Score < 5.5 (0.0 - 5.5)     ──► VERDICT: "NEW USER (GENUINE)"       ──► ACTION: Allow Full Trial Access      │
-    │  ├─ 5.5 ≤ Score < 10.0 (5.5-10.0)──► VERDICT: "SUSPICIOUS (STEP-UP)"     ──► ACTION: Step-Up (SMS OTP / CAPTCHA)  │
-    │  ├─ Score ≥ 10.0 (10.0 - 100.0)  ──► VERDICT: "REPEAT / LIKELY ABUSE"   ──► ACTION: Block Trial / Demand Payment │
+    │  STAGE 4: CALIBRATED 3-TIER DECISION POLICY LAYER (< 2ms)                                                        │
+    │  ├─ Decision Boundaries (3-Tier Risk Policy)                                                                     │
+    │  ├─ Score < 20.0 (0.0 - 19.9)   ──► VERDICT: "NEW USER (GENUINE)"       ──► ACTION: ALLOW (Instant Trial Access) │
+    │  ├─ 20.0 ≤ Score < 60.0         ──► VERDICT: "SUSPICIOUS (STEP-UP)"     ──► ACTION: STEP-UP (SMS OTP / 2FA)      │
+    │  ├─ Score ≥ 60.0 (60.0 - 100.0) ──► VERDICT: "REPEATING USER (ABUSE)"   ──► ACTION: BLOCK (Require Payment)      │
     │  └─ Companion Explainability     : Additive signal breakdown alongside model output for UI transparency          │
     └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
              │
@@ -380,7 +380,37 @@ py api.py
 
 ---
 
-### C. Multi-Language Integration Snippets
+### C. Step-by-Step Developer Integration Guide
+
+#### 🚀 Quickstart Walkthrough:
+1. **Step 1: Obtain API Key**
+   - Navigate to the web dashboard (`/`) and sign in.
+   - Go to the **API Keys** tab and click **`+ New Key`**.
+   - Copy your secret key (`fk_live_...`). Store it securely as an environment variable (`FRAUD_API_KEY`).
+
+2. **Step 2: Construct Signup Payload**
+   - Gather user registration attributes:
+     - `name`: User full name
+     - `email`: User email address
+     - `ip_address`: Connecting client IP
+     - `device_id`: Client browser / hardware fingerprint hash
+     - `payment_token`: Tokenized card reference or payment identifier
+     - `area`: Billing city (e.g., `"london"`, `"berlin"`, `"new_york"`)
+     - `device_os`: Operating system (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"`)
+     - `payment_country`: 2-letter ISO country code (`"GB"`, `"US"`, `"DE"`, `"CA"`)
+
+3. **Step 3: Call Scoring Endpoint (`POST /api/v1/score`)**
+   - Send synchronous HTTP POST request with header `X-API-Key: fk_live_...`.
+   - Response latency is strictly $< 15\text{ms}$.
+
+4. **Step 4: Execute 3-Tier Policy Action**
+   - **`ALLOW` (Score < 20.0):** Grant immediate frictionless free trial access.
+   - **`STEP-UP / MANUAL REVIEW` (Score 20.0 – 59.9):** Prompt for SMS OTP verification or CAPTCHA challenge.
+   - **`BLOCK / REQUIRE PAYMENT` (Score &ge; 60.0):** Reject trial abuse and require an immediate paid subscription.
+
+---
+
+### D. Multi-Language Integration Snippets
 
 #### 1. cURL
 ```bash
@@ -388,16 +418,18 @@ curl -X POST https://free-trail-fraud-detection-mlmodel.onrender.com/api/v1/scor
   -H "Content-Type: application/json" \
   -H "X-API-Key: YOUR_API_KEY_HERE" \
   -d '{
-    "name": "Sarah Miller",
-    "email": "sarah.miller@gmail.com",
-    "ip_address": "198.51.100.24",
-    "device_id": "dev_macbook_pro_m2_99",
-    "payment_token": "pm_visa_auth_8821",
-    "area": "new york"
+    "name": "Noah Fischer",
+    "email": "noah.fischer.berlin@gmail.com",
+    "ip_address": "91.198.174.192",
+    "device_id": "dev_thinkpad_p14s_noah_6621",
+    "payment_token": "pm_mastercard_noah_88190",
+    "area": "berlin",
+    "device_os": "windows",
+    "payment_country": "DE"
   }'
 ```
 
-#### 2. Python (Requests)
+#### 2. Python (Requests with Error Handling)
 ```python
 import requests
 
@@ -406,18 +438,35 @@ headers = {
     "Content-Type": "application/json",
     "X-API-Key": "YOUR_API_KEY_HERE"
 }
+
 payload = {
-    "name": "Sarah Miller",
-    "email": "sarah.miller@gmail.com",
-    "ip_address": "198.51.100.24",
-    "device_id": "dev_macbook_pro_m2_99",
-    "payment_token": "pm_visa_auth_8821",
-    "area": "new york"
+    "name": "Noah Fischer",
+    "email": "noah.fischer.berlin@gmail.com",
+    "ip_address": "91.198.174.192",
+    "device_id": "dev_thinkpad_p14s_noah_6621",
+    "payment_token": "pm_mastercard_noah_88190",
+    "area": "berlin",
+    "device_os": "windows",
+    "payment_country": "DE"
 }
 
 response = requests.post(url, json=payload, headers=headers)
 decision = response.json()
-print(f"Verdict: {decision['verdict']} | Score: {decision['risk_score']}")
+
+if response.status_code == 200 and "verdict" in decision:
+    print(f"Verdict: {decision['verdict']} | Score: {decision['risk_score']}")
+    if decision["verdict"] == "REPEATING USER (LIKELY ABUSE)":
+        print("Action: BLOCK / REQUIRE PAYMENT")
+    elif decision["verdict"] == "SUSPICIOUS (STEP-UP)":
+        print("Action: TRIGGER 2FA / SMS OTP")
+    else:
+        print("Action: ALLOW INSTANT TRIAL")
+elif response.status_code == 401:
+    print("Error 401: Invalid or Missing API Key. Check 'X-API-Key' header.")
+elif response.status_code == 429:
+    print("Error 429: Rate limit exceeded (30 req/min).")
+else:
+    print(f"Error {response.status_code}:", decision)
 ```
 
 #### 3. Python SDK (`client.py`)
@@ -430,16 +479,18 @@ client = FraudDetectionClient(
 )
 
 decision = client.score_signup(
-    name="Sarah Miller",
-    email="sarah.miller@gmail.com",
-    ip_address="198.51.100.24",
-    device_id="dev_macbook_pro_m2_99",
-    payment_token="pm_visa_auth_8821",
-    area="new york"
+    name="Noah Fischer",
+    email="noah.fischer.berlin@gmail.com",
+    ip_address="91.198.174.192",
+    device_id="dev_thinkpad_p14s_noah_6621",
+    payment_token="pm_mastercard_noah_88190",
+    area="berlin",
+    device_os="windows",
+    payment_country="DE"
 )
 
 if decision.is_fraudulent:
-    raise PermissionError("Trial limit reached on this device or network.")
+    raise PermissionError("Trial limit reached on this device or card.")
 ```
 
 #### 4. Node.js (Express Middleware)
